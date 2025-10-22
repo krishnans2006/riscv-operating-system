@@ -155,7 +155,7 @@ int ktfs_cntl(struct uio* uio, int cmd, void* arg) {
 
 /**
  * @brief Flushes the cache to the backing device
- * @return 0 if flush successful, negative error code if error
+ * @return None
  */
 void ktfs_flush(struct filesystem* fs) {
     // FIXME
