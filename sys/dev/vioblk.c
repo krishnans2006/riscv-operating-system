@@ -80,7 +80,9 @@ static void vioblk_storage_close(struct storage* sto);
  * @brief Reads bytecnt number of bytes from the disk and writes them to buf. Achieves this by
  * repeatedly setting the appropriate registers to request a block from the disk, waiting until the
  * data has been populated in block buffer cache, and then writes that data out to buf. Thread
- * sleeps while waiting for the disk to service the request.
+ * sleeps while waiting for the disk to service the request. Reads that exceed the end of the block
+ * device should be truncated. Reads whose bytecnt is not a multiple of blksz should be rounded
+ * down to the nearest blksz.
  * @param sto Storage IO struct for the storage device
  * @param pos The starting position for the read within the VirtIO device
  * @param buf A pointer to the buffer to fill with the read data
@@ -95,7 +97,9 @@ static long vioblk_storage_fetch(struct storage* sto, unsigned long long pos, vo
  * device should not change. You should only overwrite existing data. Write should also not create
  * any new files. Achieves this by filling up the block buffer cache and then setting the
  * appropriate registers to request the disk write the contents of the cache to the specified block
- * location. Thread sleeps while waiting for the disk to service the request.
+ * location. Thread sleeps while waiting for the disk to service the request. Writes that exceed
+ * the end of the block device should be truncated. Writes whose bytecnt is not a multiple of
+ * blksz should be rounded down to the nearest blksz.
  * @param sto Storage IO struct for the storage device
  * @param pos The starting position for the write within the VirtIO device
  * @param buf A pointer to the buffer with the data to write
