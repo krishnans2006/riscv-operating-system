@@ -38,6 +38,8 @@
 #define VIOBLK_NAME "vioblk"
 #endif
 
+#define VIRTQ_LEN 128
+
 // INTERNAL CONSTANT DEFINITIONS
 //
 
@@ -57,6 +59,27 @@
 
 // INTERNAL FUNCTION DECLARATIONS
 //
+
+struct vioblk_storage {
+    struct storage base;
+    volatile struct virtio_mmio_regs * regs;
+    int irqno;
+    char opened;
+
+    struct condition used_ring_updated;
+
+    struct virtq_desc descriptors[VIRTQ_LEN];  // Descriptor table
+    struct virtq_avail * avail;  // Avail ring
+    struct virtq_used * used;  // Used ring
+};
+
+static const struct storage_intf vioblk_storage_intf = {
+    .blksz = 1,
+    .open = &vioblk_storage_open,
+    .close = &vioblk_storage_close,
+    .fetch = &vioblk_storage_fetch,
+    .store = &vioblk_storage_store
+};
 
 /**
  * @brief Sets the virtq avail and virtq used queues such that they are available for use. (Hint,
@@ -184,6 +207,26 @@ void vioblk_attach(volatile struct virtio_mmio_regs* regs, int irqno) {
     assert(((blksz - 1) & blksz) == 0);
 
     // FIXME
+    vbd = kcalloc(1, sizeof(struct vioblk_storage));
+    vbd->regs = regs;
+    vbd->irqno = irqno;
+    vbd->opened = 0;
+
+    vbd->avail = kcalloc(1, VIRTQ_AVAIL_SIZE(VIRTQ_LEN));
+    vbd->used = kcalloc(1, VIRTQ_USED_SIZE(VIRTQ_LEN));
+
+    condition_init(&vbd->used_ring_updated, "vbd.used_ring_updated");
+
+    virtio_attach_virtq(regs, 0, VIRTQ_LEN, (uint64_t) vbd->descriptors, (uint64_t) vbd->used, (uint64_t) vbd->avail);
+
+    storage_init(&vbd->base, &vioblk_storage_intf);
+
+    regs->status |= VIRTIO_STAT_DRIVER_OK; //set the driver to OK
+    // fence o,oi
+    __sync_synchronize();
+
+    register_device(VIOBLK_NAME, DEV_STORAGE, vbk);
+
 }
 
 static int vioblk_storage_open(struct storage* sto) {
