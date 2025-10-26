@@ -23,12 +23,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "assert.h"
+#include "misc.h"
 #include "heap.h"
 #include "string.h"
 #include "riscv.h"
 #include "intr.h"
 #include "error.h"
+#include "see.h"
 
 #include <stdarg.h>
 

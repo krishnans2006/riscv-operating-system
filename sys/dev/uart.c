@@ -13,7 +13,7 @@
 #endif
 
 #include "conf.h"
-#include "assert.h"
+#include "misc.h"
 #include "uart.h"
 #include "devimpl.h"
 #include "intr.h"

@@ -14,7 +14,7 @@
 
 #include "rtc.h"
 #include "conf.h"
-#include "assert.h"
+#include "misc.h"
 #include "devimpl.h"
 #include "console.h"
 #include "string.h"
