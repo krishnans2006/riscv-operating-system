@@ -71,6 +71,13 @@ void ramdisk_attach() {
     extern char _kimg_blob_start[], _kimg_blob_end[];
 
     // FIXME
+    struct ramdisk * rd = kmalloc(sizeof(struct ramdisk));
+    size_t size = _kimg_blob_end - _kimg_blob_start;
+
+    rd->size = size;
+    rd->buf = (void *)_kimg_block_start;
+    storage_init(&rd->storage, &ramdisk_intf, size);
+    register_device(RAMDISK_NAME, DEV_STORAGE, &rd->storage);
 }
 
 // INTERNAL FUNCTION DEFINITIONS
@@ -83,7 +90,10 @@ void ramdisk_attach() {
  */
 static int ramdisk_open(struct storage *sto) {
     // FIXME
-    return -ENOTSUP;
+    if (sto == NULL) {
+        return -EINVAL;
+    }
+    return 0;
 }
 
 /**
@@ -107,7 +117,20 @@ static void ramdisk_close(struct storage *sto) {
 static long ramdisk_fetch(struct storage *sto, unsigned long long pos, void *buf,
                           unsigned long bytecnt) {
     // FIXME
-    return -ENOTSUP;
+    if (sto == NULL || buf == NULL) {
+        return -EINVAL;
+    }
+
+    struct ramdisk * rd = (struct ramdisk *)sto;
+    unsigned long long capacity = sto->capacity;
+    if (pos >= capacity) return 0;
+
+    unsigned long long space = capacity - pos;
+
+    size_t n = space < bytecnt ? space : bytecnt;
+    memcpy(buf, (char *)rd->buf + pos, n);
+
+    return (long)n;
 }
 
 /**
@@ -123,5 +146,15 @@ static long ramdisk_fetch(struct storage *sto, unsigned long long pos, void *buf
  */
 static int ramdisk_cntl(struct storage *sto, int cmd, void *arg) {
     // FIXME
-    return -ENOTSUP;
+    if (sto == NULL) return -EINVAL;
+    if (cmd == FCNTL_GETEND) {
+        if (arg == NULL) return -EINVAL;
+        struct ramdisk * rd = (struct ramdisk *)sto;
+
+        *(unsigned long long *)arg = rd->size;
+
+        return 0;
+    } else {
+        return -ENOTSUP;
+    }
 }
