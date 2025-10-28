@@ -75,7 +75,7 @@ void ramdisk_attach() {
     size_t size = _kimg_blob_end - _kimg_blob_start;
 
     rd->size = size;
-    rd->buf = (void *)_kimg_block_start;
+    rd->buf = (void *)_kimg_blob_start;
     storage_init(&rd->storage, &ramdisk_intf, size);
     register_device(RAMDISK_NAME, DEV_STORAGE, &rd->storage);
 }
