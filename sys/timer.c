@@ -21,6 +21,8 @@
 #include "conf.h"
 #include "see.h" // for set_stcmp
 
+#include <stddef.h>
+
 // EXPORTED GLOBAL VARIABLE DEFINITIONS
 // 
 
