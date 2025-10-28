@@ -4,5 +4,8 @@
 *.o
 *.elf
 
+# User binaries
+usr/bin/
+
 # compiledb (clangd)
 compile_commands.json
