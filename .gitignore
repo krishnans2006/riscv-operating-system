@@ -1,0 +1,5 @@
+.gdbhist
+
+# Make artifacts
+*.o
+*.elf
