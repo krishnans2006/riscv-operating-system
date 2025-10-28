@@ -7,5 +7,6 @@
 # User binaries
 usr/bin/
 
-# compiledb (clangd)
+# clangd
+*.idx
 compile_commands.json
