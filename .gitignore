@@ -8,5 +8,6 @@
 usr/bin/
 
 # clangd
+.clangd
 *.idx
 compile_commands.json

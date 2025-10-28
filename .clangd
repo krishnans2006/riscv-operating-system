@@ -1,7 +1,0 @@
-CompileFlags:
-  Remove: [-mno-riscv-attribute]
-  Add:
-    - --target=riscv64-unknown-elf
-    - -I/class/ece391/rhel9/lib/gcc/riscv64-unknown-elf/13.2.0/include
-    - -I/class/ece391/rhel9/lib/gcc/riscv64-unknown-elf/13.2.0/include-fixed
-    - -I/class/ece391/rhel9/lib/gcc/riscv64-unknown-elf/13.2.0/../../../../riscv64-unknown-elf/include
