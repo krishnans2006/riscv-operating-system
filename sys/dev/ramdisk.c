@@ -86,7 +86,7 @@ void ramdisk_attach() {
 /**
  * @brief Opens the _ramdisk_ device.
  * @param sto Storage struct pointer for memory storage
- * @return 0 on success
+ * @return 0 on success, or negative error code on error
  */
 static int ramdisk_open(struct storage *sto) {
     // FIXME
@@ -97,8 +97,9 @@ static int ramdisk_open(struct storage *sto) {
 }
 
 /**
- * @brief Closes the _ramdisk_ device.
+ * @brief Closes the _ramdisk_ device. Return immediately on error.
  * @param sto Storage struct pointer for memory storage
+ * @return None
  */
 static void ramdisk_close(struct storage *sto) {
     // FIXME

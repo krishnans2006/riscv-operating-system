@@ -1,0 +1,13 @@
+.gdbhist
+
+# Make artifacts
+*.o
+*.elf
+
+# User binaries
+usr/bin/
+
+# clangd
+.clangd
+*.idx
+compile_commands.json
