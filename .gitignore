@@ -3,3 +3,6 @@
 # Make artifacts
 *.o
 *.elf
+
+# compiledb (clangd)
+compile_commands.json
