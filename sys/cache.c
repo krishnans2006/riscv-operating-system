@@ -28,6 +28,20 @@
 // INTERNAL TYPE DEFINITIONS
 //
 
+struct cache_block {
+    unsigned long long pos;  // Position (byte offset) in backing storage
+
+    struct cache_block* next;  // Next cache block in linked list
+};
+
+struct cache {
+    struct storage* storage;  // Backing storage device (disk)
+
+    struct cache_block* head;  // Pointer to first cache block
+    struct cache_block* tail;  // Pointer to last cache block
+    unsigned int block_count;  // Number of blocks in cache
+};
+
 /**
  * @brief Creates/initializes a cache with the passed backing storage device (disk) and makes it
  * available through cptr.
@@ -36,8 +50,19 @@
  * @return 0 on success, negative error code if error
  */
 int create_cache(struct storage* disk, struct cache** cptr) {
-    // FIXME
-    return -ENOTSUP;
+    struct cache* cache = (struct cache*) kcalloc(1, sizeof(struct cache));
+
+    if (cache == NULL) {
+        return -ENOMEM;
+    }
+    
+    cache->storage = disk;
+    cache->head = NULL;
+    cache->tail = NULL;
+    cache->block_count = 0;
+
+    cptr = &cache;
+    return 0;
 }
 
 /**

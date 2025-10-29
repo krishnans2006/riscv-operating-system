@@ -8,6 +8,7 @@
 #define _CACHE_H_
 
 #define CACHE_BLKSZ 512UL  // size of cache block
+#define CACHE_NUM_BLOCKS 64
 
 struct storage;  // external
 struct cache;    // opaque decl.
