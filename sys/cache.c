@@ -28,6 +28,26 @@
 // INTERNAL TYPE DEFINITIONS
 //
 
+struct cache{
+    struct storage * backing;
+    
+
+    struct cache_entry * head;
+    struct cache_entry * tail;
+
+    struct cache_entry entries[64];
+};
+
+struct cache_entry{
+    int dirty;
+    unsigned long long pos;
+    void* block;
+
+    struct cache_entry *prev;
+    struct cache_entry *next;
+
+};
+
 /**
  * @brief Creates/initializes a cache with the passed backing storage device (disk) and makes it
  * available through cptr.
@@ -37,7 +57,16 @@
  */
 int create_cache(struct storage* disk, struct cache** cptr) {
     // FIXME
-    return -ENOTSUP;
+    struct cache *c = kmalloc( sizeof(struct cache));
+
+    c->backing = disk;
+
+    //initiate cache data blocks.
+    for(int i = 0; i < 64;i++){
+        c->entries[i].block = kmalloc(CACHE_BLKSZ);
+    }
+    
+    return 0;
 }
 
 /**
@@ -52,7 +81,19 @@ int create_cache(struct storage* disk, struct cache** cptr) {
  */
 int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
     // FIXME
-    return -ENOTSUP;
+    struct cache_entry* hit = find_cache(cache, pos);
+    if(hit == NULL){
+        
+        storage_fetch(cache->backing, pos, cache->tail->block, CACHE_BLKSZ);
+        insert_head(cache, cache->tail);
+        remove_tail(cache);
+
+        *pptr = cache->tail->block;
+    } else {
+        *pptr = hit->block;
+    }
+
+    return 0;
 }
 
 /**
@@ -66,7 +107,18 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
  */
 void cache_release_block(struct cache* cache, void* pblk, int dirty) {
     // FIXME
-    return;
+    int i;
+
+    for(i = 0; i<64; i++){
+        if(cache->entries[i].block == pblk){
+            break;
+        }
+        return -1;
+    }
+
+    cache->entries[i].dirty = dirty;
+
+    return 0;
 }
 
 /**
@@ -76,5 +128,29 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
  */
 int cache_flush(struct cache* cache) {
     // FIXME
-    return -ENOTSUP;
+    for(int i = 0; i<64; i++){
+
+        if(cache->entries[i].dirty == 1){
+            storage_store(cache->backing, cache->entries[i].pos, cache->entries[i].block, CACHE_BLKSZ);
+        }
+       
+    }
+
+    return 0;
+}
+
+struct cache_entry* find_cache(struct cache* cache, unsigned long long pos){
+
+
+    return NULL;
+}
+
+
+void remove_tail(struct cache* cache){
+
+
+}
+
+void insert_head(struct cache* cache, struct cache_entry* entry){
+
 }
