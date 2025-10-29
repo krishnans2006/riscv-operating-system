@@ -31,9 +31,24 @@
 // INTERNAL TYPE DEFINITIONS
 //
 
+struct ktfs_fs {
+    struct filesystem base;
+    struct cache* cache;
+};
+
 /// @brief File struct for a file in the Keegan Teal Filesystem
 struct ktfs_file {
-    // Fill to fulfill spec
+    struct uio uio;  // uio struct for file I/O operations
+    struct ktfs_dir_entry dir_entry;  // dentry
+    unsigned long size;  // size of the file in bytes
+    unsigned long pos;  // current position in file for read/write operations
+
+    struct ktfs_file* next;  // next file in linked list, for directory listing
+};
+
+struct ktfs_listing_uio {
+    struct uio base;
+    struct ktfs_file* file;
 };
 
 // INTERNAL FUNCTION DECLARATIONS
@@ -49,7 +64,17 @@ int ktfs_delete(struct filesystem* fs, const char* name);
 void ktfs_flush(struct filesystem* fs);
 
 void ktfs_listing_close(struct uio* uio);
-long ktfs_listing_read(struct uio* uio, void* buf, unsigned long bufsz);
+long ktfs_listing_read(struct uio *uio, void *buf, unsigned long bufsz);
+
+// INTERNAL GLOBAL VARIABLES
+//
+
+static const struct uio_intf ktfs_listing_uio_intf = {
+    .close = &ktfs_listing_close,
+    .read = &ktfs_listing_read,
+    .write = NULL,
+    .cntl = NULL,
+};
 
 /**
  * @brief Mounts the file system with associated backing cache
@@ -57,8 +82,20 @@ long ktfs_listing_read(struct uio* uio, void* buf, unsigned long bufsz);
  * @return 0 if mount successful, negative error code if error
  */
 int mount_ktfs(const char* name, struct cache* cache) {
-    // FIXME
-    return -ENOTSUP;
+    struct ktfs_fs* fs = kcalloc(1, sizeof(struct ktfs_fs));
+
+    if (fs == NULL) {
+        return -ENOMEM;
+    }
+
+    fs->base.open = &ktfs_open;
+    fs->base.create = &ktfs_create;
+    fs->base.delete = &ktfs_delete;
+    fs->base.flush = &ktfs_flush;
+
+    fs->cache = cache;
+
+    return attach_filesystem(name, (struct filesystem*)fs);
 }
 
 /**
@@ -70,7 +107,22 @@ int mount_ktfs(const char* name, struct cache* cache) {
  * @return 0 if open successful, negative error code if error
  */
 int ktfs_open(struct filesystem* fs, const char* name, struct uio** uioptr) {
-    // FIXME
+    struct ktfs_fs* ktfs = (struct ktfs_fs*)fs;
+
+    if (name == NULL || uioptr == NULL) {
+        return -EINVAL;
+    }
+
+    if (strcmp(name, "\\") == 0) {
+        // Listing
+        struct ktfs_listing_uio* listing_uio =
+            kcalloc(1, sizeof(struct ktfs_listing_uio));
+
+        if (listing_uio == NULL) {
+            return -ENOMEM;
+        }
+    }
+
     return -ENOTSUP;
 }
 
