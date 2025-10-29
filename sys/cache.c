@@ -31,11 +31,9 @@
 struct cache{
     struct storage * backing;
     
-
     struct cache_entry * head;
     struct cache_entry * tail;
 
-    struct cache_entry entries[64];
 };
 
 struct cache_entry{
@@ -57,14 +55,14 @@ struct cache_entry{
  */
 int create_cache(struct storage* disk, struct cache** cptr) {
     // FIXME
-    struct cache *c = kmalloc( sizeof(struct cache));
-
+    struct cache *c = kmalloc( sizeof(struct cache)); 
+    
+    
     c->backing = disk;
 
     //initiate cache data blocks.
-    for(int i = 0; i < 64;i++){
-        c->entries[i].block = kmalloc(CACHE_BLKSZ);
-    }
+
+    init_linkedlist(c);
     
     return 0;
 }
@@ -81,16 +79,35 @@ int create_cache(struct storage* disk, struct cache** cptr) {
  */
 int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
     // FIXME
+    
+    if(pos % CACHE_BLKSZ){
+        return -EINVAL;
+    }
+
     struct cache_entry* hit = find_cache(cache, pos);
+
+    
     if(hit == NULL){
         
         storage_fetch(cache->backing, pos, cache->tail->block, CACHE_BLKSZ);
+        cache->tail->dirty = 0;
+        cache->tail->pos = pos;
         insert_head(cache, cache->tail);
         remove_tail(cache);
 
         *pptr = cache->tail->block;
     } else {
         *pptr = hit->block;
+
+        //move hit to the front of the linked list
+        
+        hit->prev->next = hit->next;
+        hit->next->prev = hit->prev;
+        hit->next = cache->head;
+
+        cache->head->prev = hit;
+        cache->head = hit;
+        
     }
 
     return 0;
@@ -107,18 +124,20 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
  */
 void cache_release_block(struct cache* cache, void* pblk, int dirty) {
     // FIXME
-    int i;
+    
+    struct cache_entry * cur = cache->head;
+    while(cur){
 
-    for(i = 0; i<64; i++){
-        if(cache->entries[i].block == pblk){
-            break;
+        if(cur->block == pblk){
+            
+            cur->dirty = dirty;
+            return 0;
         }
-        return -1;
+       cur = cur->next;
     }
 
-    cache->entries[i].dirty = dirty;
 
-    return 0;
+    return -EEXIST;
 }
 
 /**
@@ -128,19 +147,35 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
  */
 int cache_flush(struct cache* cache) {
     // FIXME
-    for(int i = 0; i<64; i++){
+    struct cache_entry * cur = cache->head;
+    struct cache_entry * prev;
+    while(cur){
 
-        if(cache->entries[i].dirty == 1){
-            storage_store(cache->backing, cache->entries[i].pos, cache->entries[i].block, CACHE_BLKSZ);
+        if(cur->dirty == 1){
+            storage_store(cache->backing, cur->pos, cur->block, CACHE_BLKSZ);
         }
-       
+        prev = cur;
+        cur = cur->next;
+
+        kfree(prev->block);
+        kfree(prev);
     }
+
+    kfree(cache);
 
     return 0;
 }
 
 struct cache_entry* find_cache(struct cache* cache, unsigned long long pos){
 
+    struct cache_entry * cur = cache->head;
+    while(cur){
+
+        if(cur->pos == pos){
+            return cur;
+        }
+       cur = cur->next;
+    }
 
     return NULL;
 }
@@ -148,9 +183,49 @@ struct cache_entry* find_cache(struct cache* cache, unsigned long long pos){
 
 void remove_tail(struct cache* cache){
 
+    cache->tail = cache->tail->prev;
+    cache->tail->next = NULL;
 
 }
 
 void insert_head(struct cache* cache, struct cache_entry* entry){
+
+    entry->next = cache->head;
+    cache->head = entry;
+
+    entry->next->prev = entry;
+
+}
+
+void init_linkedlist(struct cache* cache){
+    struct cache_entry * cur = (struct cache_entry*) kmalloc(sizeof(struct cache_entry));
+
+    cache->head = cur;
+
+    struct cache_entry * next;
+    struct cache_entry * prev = NULL;
+
+    for(int i = 1; i < CACHE_BLKSZ; i++){
+        next = (struct cache_entry*) kmalloc(sizeof(struct cache_entry));
+
+        cur->next = next;
+        cur->prev = prev;
+        cur->dirty = 0;
+        cur->pos   = -1;
+        cur->block = kmalloc(CACHE_BLKSZ);
+
+
+        prev = cur;
+        cur = next;
+    }
+
+    cur->next = NULL;
+    cur->prev = prev;
+    cur->dirty = 0;
+    cur->pos   = -1;
+    cur->block = kmalloc(CACHE_BLKSZ);
+
+    cache->tail = cur;
+
 
 }
