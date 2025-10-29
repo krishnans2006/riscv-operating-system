@@ -9,5 +9,6 @@ usr/bin/
 
 # clangd
 .clangd
+.cache
 *.idx
 compile_commands.json
