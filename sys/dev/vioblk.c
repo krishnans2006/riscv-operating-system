@@ -38,8 +38,22 @@
 #define VIOBLK_NAME "vioblk"
 #endif
 
+
+
 // INTERNAL CONSTANT DEFINITIONS
 //
+#define VIRTIO_IRQ_STATUS_USED (1 << 0)
+#define VIRTQ_LEN 128
+
+#define VIRTIO_BLK_T_IN           0 
+#define VIRTIO_BLK_T_OUT          1 
+#define VIRTIO_BLK_T_FLUSH        4 
+#define VIRTIO_BLK_T_GET_ID       8 
+#define VIRTIO_BLK_T_GET_LIFETIME 10 
+#define VIRTIO_BLK_T_DISCARD      11 
+#define VIRTIO_BLK_T_WRITE_ZEROES 13 
+#define VIRTIO_BLK_T_SECURE_ERASE   14
+
 
 // VirtIO block device feature bits (number, *not* mask)
 
@@ -57,6 +71,35 @@
 
 // INTERNAL FUNCTION DECLARATIONS
 //
+
+struct vioblk_storage {
+    struct storage base;
+    volatile struct virtio_mmio_regs * regs;
+    int irqno;
+    char opened;
+
+    struct condition used_ring_updated;
+
+    struct virtq_desc descriptors[VIRTQ_LEN];  // Descriptor table
+    struct virtq_avail * avail;  // Avail ring
+    struct virtq_used * used;  // Used ring
+};
+
+static const struct storage_intf vioblk_storage_intf = {
+    .blksz = 512,
+    .open = &vioblk_storage_open,
+    .close = &vioblk_storage_close,
+    .fetch = &vioblk_storage_fetch,
+    .store = &vioblk_storage_store,
+    .cntl = &vioblk_storage_cntl
+};
+
+struct virtio_blk_req_hdr {
+    uint32_t type;      // IN=0, OUT=1, FLUSH=4, ...
+    uint32_t reserved;
+    uint64_t sector;    // LBA in 512B units
+} __attribute__((packed));
+
 
 /**
  * @brief Sets the virtq avail and virtq used queues such that they are available for use. (Hint,
@@ -188,36 +231,216 @@ void vioblk_attach(volatile struct virtio_mmio_regs* regs, int irqno) {
     assert(((blksz - 1) & blksz) == 0);
 
     // FIXME
+    vbd = kcalloc(1, sizeof(struct vioblk_storage));
+    vbd->regs = regs;
+    vbd->irqno = irqno;
+    vbd->opened = 0;
+
+    vbd->avail = kcalloc(1, VIRTQ_AVAIL_SIZE(VIRTQ_LEN));
+    vbd->used = kcalloc(1, VIRTQ_USED_SIZE(VIRTQ_LEN));
+
+    condition_init(&vbd->used_ring_updated, "vbd.used_ring_updated");
+
+    virtio_attach_virtq(regs, 0, VIRTQ_LEN, (uint64_t) vbd->descriptors, (uint64_t) vbd->used, (uint64_t) vbd->avail);
+
+    storage_init(&vbd->base, &vioblk_storage_intf, vbd->regs->config.blk.capacity);
+
+    regs->status |= VIRTIO_STAT_DRIVER_OK; //set the driver to OK
+    // fence o,oi
+    __sync_synchronize();
+
+    register_device(VIOBLK_NAME, DEV_STORAGE, vbd);
+
 }
 
 static int vioblk_storage_open(struct storage* sto) {
     // FIXME
-    return -ENOTSUP;
+
+    struct vioblk_storage * const vblk = (void *)sto - offsetof(struct vioblk_storage, base);
+
+    if (vblk->opened) {
+        return -EBUSY;
+    }
+
+    virtio_enable_virtq(vblk->regs, 0);
+
+    int srcno = vblk->irqno;
+    enable_intr_source(srcno, VIOBLK_INTR_PRIO, &vioblk_isr, vblk);
+
+    vblk->opened = 1;
+
+    return 0;
 }
 
 static void vioblk_storage_close(struct storage* sto) {
     // FIXME
+    struct vioblk_storage * const vblk = (void *)sto - offsetof(struct vioblk_storage, base);
+
+    if (!vblk->opened) {
+        return;
+    }
+
+    disable_intr_source(vblk->irqno);
+    virtio_reset_virtq(vblk->regs, 0);
+
+    vblk->opened = 0;
     return;
 }
 
 static long vioblk_storage_fetch(struct storage* sto, unsigned long long pos, void* buf,
                                  unsigned long bytecnt) {
     // FIXME
-    return -ENOTSUP;
+    struct vioblk_storage * const vblk = (void *)sto - offsetof(struct vioblk_storage, base);
+
+    if (!vblk->opened) {
+        return -EINVAL;
+    }
+
+    if(bytecnt == 0){
+        return 0;
+    }
+
+
+    uint64_t size = bytecnt / 512;
+
+    struct virtio_blk_req_hdr * request = kalloc(sizeof(struct virtio_blk_req_hdr));
+
+    uint8_t *status = kalloc(1);
+
+    request->type = VIRTIO_BLK_T_IN;
+    request->sector = pos;
+
+    vblk->descriptors[0].addr  = (uint64_t)request;
+    vblk->descriptors[0].len   = sizeof *request;
+    vblk->descriptors[0].flags = VIRTQ_DESC_F_NEXT;
+    vblk->descriptors[0].next  = 1;
+
+    vblk->descriptors[1].addr  = (uint64_t)(char*)buf;
+    vblk->descriptors[1].len   = size*512;
+    vblk->descriptors[1].flags = VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE;
+    vblk->descriptors[1].next  = 2;
+
+    vblk->descriptors[2].addr  = (uint64_t)status;
+    vblk->descriptors[2].len   = 1;
+    vblk->descriptors[2].flags = VIRTQ_DESC_F_WRITE;
+
+    
+    uint16_t curr_used_idx = vblk->used->idx;
+    
+    vblk->avail->ring[vblk->avail->idx % VIRTQ_LEN] = 0;
+    vblk->avail->idx++;
+
+        // Notify device
+    virtio_notify_avail(vblk->regs, 0);
+
+    int pie = disable_interrupts();
+    while (vblk->used->idx == curr_used_idx) {
+        condition_wait(&vblk->used_ring_updated);
+    }
+    restore_interrupts(pie);
+
+    if (*status != 0) return -EIO;
+
+    // When we get here, the device has processed our request
+    // and the ISR should have run, responding to the interrupt.
+    return size*512;
 }
 
 static long vioblk_storage_store(struct storage* sto, unsigned long long pos, const void* buf,
                                  unsigned long bytecnt) {
     // FIXME
-    return -ENOTSUP;
+
+    struct vioblk_storage * const vblk = (void *)sto - offsetof(struct vioblk_storage, base);
+
+    if (!vblk->opened) {
+        return -EINVAL;
+    }
+
+    if(bytecnt == 0){
+        return 0;
+    }
+
+    uint64_t size = bytecnt / 512;
+
+    struct virtio_blk_req_hdr * request = kalloc(sizeof(struct virtio_blk_req_hdr));
+
+    uint8_t *status = kalloc(1);
+
+    request->type = VIRTIO_BLK_T_OUT;
+    request->sector = pos;
+
+    vblk->descriptors[0].addr  = (uint64_t)request;
+    vblk->descriptors[0].len   = sizeof *request;
+    vblk->descriptors[0].flags = VIRTQ_DESC_F_NEXT;
+    vblk->descriptors[0].next  = 1;
+
+    vblk->descriptors[1].addr  = (uint64_t)(char*)buf;
+    vblk->descriptors[1].len   = size*512;
+    vblk->descriptors[1].flags = VIRTQ_DESC_F_NEXT;
+    vblk->descriptors[1].next  = 2;
+
+    vblk->descriptors[2].addr  = (uint64_t)status;
+    vblk->descriptors[2].len   = 1;
+    vblk->descriptors[2].flags = VIRTQ_DESC_F_WRITE;
+
+    
+    uint16_t curr_used_idx = vblk->used->idx;
+    
+    vblk->avail->ring[vblk->avail->idx % VIRTQ_LEN] = 0;
+    vblk->avail->idx++;
+
+        // Notify device
+    virtio_notify_avail(vblk->regs, 0);
+
+    int pie = disable_interrupts();
+    while (vblk->used->idx == curr_used_idx) {
+        condition_wait(&vblk->used_ring_updated);
+    }
+    restore_interrupts(pie);
+
+    if (*status != 0) return -EIO;
+
+    // When we get here, the device has processed our request
+    // and the ISR should have run, responding to the interrupt.
+    return size*512;
 }
 
 static int vioblk_storage_cntl(struct storage* sto, int op, void* arg) {
     // FIXME
+    struct vioblk_storage * const vblk = (void *)sto - offsetof(struct vioblk_storage, base);
+
+    if (!vblk->opened) {
+        return -EINVAL;
+    }
+
+    if(op == FCNTL_GETEND){
+       *(unsigned long long*)arg = vblk->base.capacity;
+    } 
+
     return -ENOTSUP;
 }
 
 static void vioblk_isr(int irqno, void* aux) {
     // FIXME
+
+    struct vioblk_storage * const vblk = aux; // aux is viorng_serial*
+
+    // Acknowledge interrupt
+    uint32_t status = vblk->regs->interrupt_status;
+
+    if (status & VIRTIO_IRQ_STATUS_USED) {
+        // idx is the next index to be written to, so the last used element is at idx-1
+        // struct virtq_used_elem used = vrng->used->ring[(vrng->used->idx - 1) % VIRTQ_LEN];
+
+        // We don't care which element was added to the used ring, since we're going to broadcast anyways
+        condition_broadcast(&vblk->used_ring_updated);
+
+        vblk->regs->interrupt_ack = VIRTIO_IRQ_STATUS_USED;
+        return;
+    }
+
+    // We didn't handle the interrupt...
+    vblk->regs->interrupt_ack = 0;
+
     return;
 }
