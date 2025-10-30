@@ -69,7 +69,7 @@
 #define VIRTIO_BLK_F_DISCARD 13
 #define VIRTIO_BLK_F_WRITE_ZEROES 14
 
-// INTERNAL FUNCTION DECLARATIONS
+// INTERNAL TYPE DEFINITIONS
 //
 
 struct vioblk_storage {
@@ -85,21 +85,8 @@ struct vioblk_storage {
     struct virtq_used * used;  // Used ring
 };
 
-static const struct storage_intf vioblk_storage_intf = {
-    .blksz = 512,
-    .open = &vioblk_storage_open,
-    .close = &vioblk_storage_close,
-    .fetch = &vioblk_storage_fetch,
-    .store = &vioblk_storage_store,
-    .cntl = &vioblk_storage_cntl
-};
-
-struct virtio_blk_req_hdr {
-    uint32_t type;      // IN=0, OUT=1, FLUSH=4, ...
-    uint32_t reserved;
-    uint64_t sector;    // LBA in 512B units
-} __attribute__((packed));
-
+// INTERNAL FUNCTION DECLARATIONS
+//
 
 /**
  * @brief Sets the virtq avail and virtq used queues such that they are available for use. (Hint,
@@ -172,15 +159,32 @@ static int vioblk_storage_cntl(struct storage* sto, int op, void* arg);
  * @param aux A generic pointer for auxiliary data.
  * @return None
  */
-static void vioblk_isr(int irqno, void* aux);
+static void vioblk_isr(int irqno, void *aux);
+
+// INTERNAL GLOBAL VARIABLES
+//
+
+static const struct storage_intf vioblk_storage_intf = {
+    .blksz = 512,
+    .open = &vioblk_storage_open,
+    .close = &vioblk_storage_close,
+    .fetch = &vioblk_storage_fetch,
+    .store = &vioblk_storage_store,
+    .cntl = &vioblk_storage_cntl};
+
+struct virtio_blk_req_hdr {
+  uint32_t type; // IN=0, OUT=1, FLUSH=4, ...
+  uint32_t reserved;
+  uint64_t sector; // LBA in 512B units
+} __attribute__((packed));
 
 // EXPORTED FUNCTION DEFINITIONS
 //
 
 // Attaches a VirtIO block device. Declared and called directly from virtio.c.
 /**
- * @brief Initializes virtio block device with the necessary IO operation functions and sets the
- * required feature bits.
+ * @brief Initializes virtio block device with the necessary IO operation
+ * functions and sets the required feature bits.
  * @param regs Memory mapped register of Virtio
  * @param irqno Interrupt request number of the device
  * @return None
@@ -303,9 +307,9 @@ static long vioblk_storage_fetch(struct storage* sto, unsigned long long pos, vo
 
     uint64_t size = bytecnt / 512;
 
-    struct virtio_blk_req_hdr * request = kalloc(sizeof(struct virtio_blk_req_hdr));
+    struct virtio_blk_req_hdr * request = kcalloc(1, sizeof(struct virtio_blk_req_hdr));
 
-    uint8_t *status = kalloc(1);
+    uint8_t *status = kcalloc(1, sizeof(uint8_t));
 
     request->type = VIRTIO_BLK_T_IN;
     request->sector = pos;
@@ -362,9 +366,9 @@ static long vioblk_storage_store(struct storage* sto, unsigned long long pos, co
 
     uint64_t size = bytecnt / 512;
 
-    struct virtio_blk_req_hdr * request = kalloc(sizeof(struct virtio_blk_req_hdr));
+    struct virtio_blk_req_hdr * request = kcalloc(1, sizeof(struct virtio_blk_req_hdr));
 
-    uint8_t *status = kalloc(1);
+    uint8_t *status = kcalloc(1, sizeof(uint8_t));
 
     request->type = VIRTIO_BLK_T_OUT;
     request->sector = pos;
