@@ -43,8 +43,15 @@ struct cache_entry{
 
     struct cache_entry *prev;
     struct cache_entry *next;
-
 };
+
+// INTERNAL FUNCTION DECLARATIONS
+//
+
+struct cache_entry* find_cache(struct cache* cache, unsigned long long pos);
+void remove_tail(struct cache* cache);
+void insert_head(struct cache* cache, struct cache_entry* entry);
+void init_linkedlist(struct cache* cache);
 
 /**
  * @brief Creates/initializes a cache with the passed backing storage device (disk) and makes it
@@ -131,13 +138,10 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
         if(cur->block == pblk){
             
             cur->dirty = dirty;
-            return 0;
+            return;
         }
        cur = cur->next;
     }
-
-
-    return -EEXIST;
 }
 
 /**
