@@ -49,7 +49,7 @@ struct cache_entry{
 //
 
 struct cache_entry* find_cache(struct cache* cache, unsigned long long pos);
-void remove_tail(struct cache* cache);
+void remove_entry(struct cache* cache, struct cache_entry * entry);
 void insert_head(struct cache* cache, struct cache_entry* entry);
 void init_linkedlist(struct cache* cache);
 
@@ -70,6 +70,8 @@ int create_cache(struct storage* disk, struct cache** cptr) {
     //initiate cache data blocks.
 
     init_linkedlist(c);
+
+    *cptr = c;
     
     return 0;
 }
@@ -93,27 +95,33 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
 
     struct cache_entry* hit = find_cache(cache, pos);
 
-    
+    int feedback;
+
     if(hit == NULL){
-        
-        storage_fetch(cache->backing, pos, cache->tail->block, CACHE_BLKSZ);
+        //eviction write-back
+        if(cache->tail->dirty == 1){
+            feedback = storage_store(cache->backing, cache->tail->pos, cache->tail->block, CACHE_BLKSZ);
+            if (feedback) return feedback;
+        }
+
+        feedback = storage_fetch(cache->backing, pos, cache->tail->block, CACHE_BLKSZ);
+        if(feedback) return feedback;
+
+        struct cache_entry* entry = cache->tail;
         cache->tail->dirty = 0;
         cache->tail->pos = pos;
-        insert_head(cache, cache->tail);
-        remove_tail(cache);
 
-        *pptr = cache->tail->block;
+        remove_entry(cache, cache->tail);
+        insert_head(cache, entry);
+
+        *pptr = cache->head->block;
     } else {
         *pptr = hit->block;
 
         //move hit to the front of the linked list
-        
-        hit->prev->next = hit->next;
-        hit->next->prev = hit->prev;
-        hit->next = cache->head;
+        remove_entry(cache, hit);
 
-        cache->head->prev = hit;
-        cache->head = hit;
+        insert_head(cache, hit);
         
     }
 
@@ -142,6 +150,7 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
         }
        cur = cur->next;
     }
+    //return 0;
 }
 
 /**
@@ -153,10 +162,14 @@ int cache_flush(struct cache* cache) {
     // FIXME
     struct cache_entry * cur = cache->head;
     struct cache_entry * prev;
+
+    int feedback;
+
     while(cur){
 
         if(cur->dirty == 1){
-            storage_store(cache->backing, cur->pos, cur->block, CACHE_BLKSZ);
+            feedback = storage_store(cache->backing, cur->pos, cur->block, CACHE_BLKSZ);
+            if(feedback) return feedback;
         }
         prev = cur;
         cur = cur->next;
@@ -185,20 +198,33 @@ struct cache_entry* find_cache(struct cache* cache, unsigned long long pos){
 }
 
 
-void remove_tail(struct cache* cache){
+void remove_entry(struct cache* cache, struct cache_entry * entry){
 
-    cache->tail = cache->tail->prev;
-    cache->tail->next = NULL;
 
+    if(entry == cache->head){
+        cache->head = entry->next;
+        entry->next->prev = NULL;
+            
+    } else if(entry == cache->tail){
+        cache->tail = entry->prev;
+        entry->prev->next = NULL;
+
+        
+    } else{
+        entry->prev->next = entry->next;
+        entry->next->prev = entry->prev;
+    }
+    
 }
 
 void insert_head(struct cache* cache, struct cache_entry* entry){
+
 
     entry->next = cache->head;
     cache->head = entry;
 
     entry->next->prev = entry;
-
+    entry->prev = NULL;
 }
 
 void init_linkedlist(struct cache* cache){
@@ -209,7 +235,7 @@ void init_linkedlist(struct cache* cache){
     struct cache_entry * next;
     struct cache_entry * prev = NULL;
 
-    for(int i = 1; i < CACHE_BLKSZ; i++){
+    for(int i = 1; i < CACHE_NUM_BLOCKS; i++){
         next = (struct cache_entry*) kmalloc(sizeof(struct cache_entry));
 
         cur->next = next;
