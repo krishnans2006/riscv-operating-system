@@ -49,6 +49,8 @@ struct viorng_serial {
     struct virtq_desc descriptors[VIRTQ_LEN];  // Descriptor table
     struct virtq_avail * avail;  // Avail ring
     struct virtq_used * used;  // Used ring
+
+    struct lock lock;
 };
 
 // INTERNAL FUNCTION DECLARATIONS
@@ -127,6 +129,8 @@ void viorng_attach(volatile struct virtio_mmio_regs * regs, int irqno) {
     vrng->used = kcalloc(1, VIRTQ_USED_SIZE(VIRTQ_LEN));
 
     condition_init(&vrng->used_ring_updated, "viorng.used_ring_updated");
+
+    lock_init(&vrng->lock);
 
     virtio_attach_virtq(regs, 0, VIRTQ_LEN, (uint64_t) vrng->descriptors, (uint64_t) vrng->used, (uint64_t) vrng->avail);
 
@@ -228,6 +232,8 @@ int viorng_serial_recv(struct serial * ser, void * buf, unsigned int bufsz) {
         return 0;
     }
 
+    lock_acquire(&vrng->lock);
+
     uint16_t curr_used_idx = vrng->used->idx;
 
     // Set descriptor 0 to point to buf
@@ -248,6 +254,8 @@ int viorng_serial_recv(struct serial * ser, void * buf, unsigned int bufsz) {
         condition_wait(&vrng->used_ring_updated);
     }
     restore_interrupts(pie);
+
+    lock_release(&vrng->lock);
 
     // When we get here, the device has processed our request
     // and the ISR should have run, responding to the interrupt.

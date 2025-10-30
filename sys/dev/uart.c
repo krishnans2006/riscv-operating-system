@@ -98,6 +98,8 @@ struct uart_serial {
 
     struct ringbuf rxbuf;
     struct ringbuf txbuf;
+
+    struct lock lock;
 };
 
 // INTERNAL FUNCTION DEFINITIONS
@@ -159,6 +161,9 @@ void attach_uart(void * mmio_base, int irqno) {
     condition_init(&uart->rxbnotempty, "uart.rxnotempty");
     condition_init(&uart->txbnotfull, "uart.txnotfull");
 
+    // Initialize lock
+
+    lock_init(&uart->lock);
 
     // Initialize hardware
 
@@ -334,6 +339,8 @@ int uart_serial_send(struct serial * ser, const void * buf, unsigned int bufsz) 
     // Enable THRE interrupts
     uart->regs->ier |= IER_THREIE;
 
+    lock_acquire(&uart->lock);
+
     unsigned int i = 0;
 
     while (i < bufsz) {
@@ -353,6 +360,8 @@ int uart_serial_send(struct serial * ser, const void * buf, unsigned int bufsz) 
         uart->regs->ier |= IER_THREIE;
     }
 
+    lock_release(&uart->lock);
+    
     return bufsz;
 }
 
