@@ -315,7 +315,7 @@ static long vioblk_storage_fetch(struct storage* sto, unsigned long long pos, vo
     uint8_t *status = kcalloc(1, sizeof(uint8_t));
 
     request->type = VIRTIO_BLK_T_IN;
-    request->sector = pos;
+    request->sector = pos/512;
 
     vblk->descriptors[0].addr  = (uint64_t)request;
     vblk->descriptors[0].len   = sizeof *request;
@@ -377,7 +377,7 @@ static long vioblk_storage_store(struct storage* sto, unsigned long long pos, co
     uint8_t *status = kcalloc(1, sizeof(uint8_t));
 
     request->type = VIRTIO_BLK_T_OUT;
-    request->sector = pos;
+    request->sector = pos/512;
 
     vblk->descriptors[0].addr  = (uint64_t)request;
     vblk->descriptors[0].len   = sizeof *request;
