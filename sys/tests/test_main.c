@@ -19,8 +19,8 @@
 #include "error.h"
 #include "cache.h"
 
-// include testsuite(s)
-#include "testsuite_1.h"
+// include testsuites
+#include "testsuite_ktfs.h"
 
 #define CMNTNAME "c"
 #define DEVMNTNAME "dev"
@@ -52,8 +52,8 @@ void main(void) {
 
     mount_cdrive();
 
-    // Run the testsuite
-    run_testsuite_1();
+    // Run testsuites
+    run_testsuite_ktfs(CMNTNAME);
 }
 
 void attach_devices(void) {
