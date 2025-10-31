@@ -29,7 +29,7 @@ void run_testsuite_vioblk() {
     rc = test_open_and_capacity(sto);
     if (rc != 0) {
         kprintf("[vioblk] FAIL: capacity test -> %s\n", error_name(rc));
-        return;
+        goto out_close;
     }
 
     rc = test_rw_verify(sto);
@@ -46,6 +46,7 @@ out_close:
 
 static int test_open_and_capacity(struct storage *sto) {
     unsigned long long cap = 0ULL;
+    
     int rc = storage_cntl(sto, FCNTL_GETEND, &cap);            // returns capacity in BYTES via arg
     if (rc != 0) return rc;
 
@@ -59,35 +60,37 @@ static int test_open_and_capacity(struct storage *sto) {
 }
 
 static int test_rw_verify(struct storage *sto) {
-    unsigned int blksz = storage_blksz(sto);
+    unsigned int blksz = 512;
+    const unsigned sector = 2;                                  
+    const unsigned long len = blksz * sector;
 
     // Buffers
-    static uint8_t wbuf[512];
-    static uint8_t rbuf[512];
+    static uint8_t wbuf[4096];
+    static uint8_t rbuf[4096];
 
     // Fill pattern
-    for (unsigned i = 0; i < 512; i++) {
+    for (unsigned i = 0; i < len; i++) {
         wbuf[i] = (uint8_t)(i);
     }
-    memset(rbuf, 0x00, 512);
+    memset(rbuf, 0x00, len);
 
     // Write to LBA 0 (pos=0). NOTE: this overwrites the first sectors.
-    long wrote = storage_store(sto, 0ULL, wbuf, 512);
+    long wrote = storage_store(sto, 0ULL, wbuf, len);
     
     if (wrote < 0) 
         return (int)wrote;
-    if ((unsigned long)wrote != 512) 
+    if ((unsigned long)wrote != len) 
         return -EIO;
 
     // Read back
-    long readn = storage_fetch(sto, /*pos*/0ULL, rbuf, 512);
+    long readn = storage_fetch(sto, /*pos*/0ULL, rbuf, len);
 
     if (readn < 0) 
         return (int)readn;
-    if ((unsigned long)readn != 512) return -EIO;
+    if ((unsigned long)readn != len) return -EIO;
 
     // Verify
-    if (memcmp(wbuf, rbuf, 512) != 0) {
+    if (memcmp(wbuf, rbuf, len) != 0) {
         kprintf("[vioblk] MISMATCH after readback!\n");
         return -EIO;
     }
