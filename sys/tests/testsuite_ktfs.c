@@ -21,6 +21,7 @@ int test1() {
     struct uio* uio;
     int result = open_file("c", "\\hello", &uio);
     if (result != 0) {
+        kprintf("open_file failed: %s\n", error_name(result));
         return result;
     }
 
@@ -28,6 +29,7 @@ int test1() {
     char buffer[64];
     long bytes_read = uio_read(uio, buffer, sizeof(buffer));
     if (bytes_read < 0) {
+        kprintf("uio_read failed: %s\n", error_name((int)-bytes_read));
         uio_close(uio);
         return (int)bytes_read;
     }
