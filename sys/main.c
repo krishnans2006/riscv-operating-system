@@ -134,7 +134,7 @@ void run_init(void) {
 
     uio_close(initexe);
 
-    result = open_file(DEVMNTNAME, "uart0", &console_uio);
+    result = open_file(DEVMNTNAME, "uart1", &console_uio);
     if (result != 0) {
         kprintf("uart open failed %s\n", error_name(result));
         halt_failure();
