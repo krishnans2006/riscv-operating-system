@@ -47,9 +47,17 @@ struct ktfs_fs {
     struct opened_files opened_files;  // list of opened files
 };
 
+// Wrapper for ktfs_superblock to fill a full block
 struct ktfs_superblock_block {
-    struct ktfs_superblock fields;
-    uint8_t padding[KTFS_BLKSZ - sizeof(struct ktfs_superblock)];
+    union {
+        struct ktfs_superblock fields;
+        uint8_t raw[KTFS_BLKSZ];
+    };
+};
+
+// Wrapper for ktfs_data_block (for void* casting)
+struct ktfs_data_block_block {
+    struct ktfs_data_block data;
 };
 
 struct ktfs_inode_block {
@@ -93,6 +101,7 @@ static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* de
 static int ktfs_open_listing(struct ktfs_fs *ktfs, struct uio **uioptr);
 static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** uioptr);
 static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inode, int n, struct ktfs_dir_entry** dentry_ptr);
+static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsigned long start_byte, unsigned long end_byte, void* buf);
 
 static struct ktfs_file* get_opened_file(struct opened_files* ofiles, const char* name);
 static int add_opened_file(struct opened_files* ofiles, struct ktfs_file* file);
@@ -448,6 +457,139 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
     return 0;
 }
 
+static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsigned long start_byte, unsigned long end_byte, void* buf) {
+    // This function needs to deal with direct, indirect, and doubly-indirect blocks
+    // This is difficult! So, we split it into three cases (as with ktfs_get_nth_dentry)
+
+    // Note: start_byte and end_byte are relative to the start of the file
+    int start_block_index = start_byte / KTFS_BLKSZ;
+    int end_block_index = end_byte / KTFS_BLKSZ;
+    // Also, we need offsets within the blocks
+    int start_block_offset_bytes = start_byte % KTFS_BLKSZ;
+    int end_block_offset_bytes = end_byte % KTFS_BLKSZ;
+
+    // Now lets find all the blocks between start_block_index and
+    // end_block_index (inclusive) If the block is equal to either the start or
+    // end block, we need to take care of offsets
+
+    int num_indirections_per_indirect_block = KTFS_BLKSZ / sizeof(uint32_t);
+    int num_total_blocks = KTFS_NUM_DIRECT_DATA_BLOCKS + (KTFS_NUM_INDIRECT_BLOCKS * num_indirections_per_indirect_block) + (KTFS_NUM_DINDIRECT_BLOCKS * num_indirections_per_indirect_block * num_indirections_per_indirect_block);
+
+    unsigned long bytes_copied = 0;
+
+    for (int i = start_block_index; i <= end_block_index && i < num_total_blocks; i++) {
+        // Get to the actual data block if it's indirect or doubly-indirect
+        // All three if/else cases below will fill this variable
+        struct ktfs_data_block_block* data_block = kcalloc(1, sizeof(struct ktfs_data_block_block));
+
+        if (i < KTFS_NUM_DIRECT_DATA_BLOCKS) {
+            // Direct block case
+            uint32_t data_block_num = inode->block[i];
+            int result = cache_get_block(ktfs->cache, data_block_num, (void*)data_block);
+            if (result != 0) {
+                kfree(data_block);
+                return result;
+            }
+        } else if (i < KTFS_NUM_DIRECT_DATA_BLOCKS + (KTFS_NUM_INDIRECT_BLOCKS * num_indirections_per_indirect_block)) {
+            // Indirect block case
+            int within_indirect_index = (i - KTFS_NUM_DIRECT_DATA_BLOCKS) % num_indirections_per_indirect_block;
+            
+            struct ktfs_indirect_block* indirect_block = kcalloc(1, sizeof(struct ktfs_indirect_block));
+            if (indirect_block == NULL) {
+                kfree(data_block);
+                return -ENOMEM;
+            }
+            int result = cache_get_block(ktfs->cache, inode->indirect, (void*)indirect_block);
+            if (result != 0) {
+                kfree(data_block);
+                kfree(indirect_block);
+                return result;
+            }
+            uint32_t data_block_num = indirect_block->pointers[within_indirect_index];
+
+            result = cache_get_block(ktfs->cache, data_block_num, (void*)data_block);
+            if (result != 0) {
+                kfree(data_block);
+                kfree(indirect_block);
+                return result;
+            }
+
+            kfree(indirect_block);
+        } else {
+            // Doubly-indirect block case
+            int new_i = i - (KTFS_NUM_DIRECT_DATA_BLOCKS + (KTFS_NUM_INDIRECT_BLOCKS * num_indirections_per_indirect_block));
+            int dindirect_block_index = new_i / (num_indirections_per_indirect_block * num_indirections_per_indirect_block);
+            int within_dindirect_index = (new_i / num_indirections_per_indirect_block) % num_indirections_per_indirect_block;
+            int within_indirect_index = new_i % num_indirections_per_indirect_block;
+
+            struct ktfs_indirect_block* dindirect_block = kcalloc(1, sizeof(struct ktfs_indirect_block));
+            if (dindirect_block == NULL) {
+                kfree(data_block);
+                return -ENOMEM;
+            }
+            int result = cache_get_block(ktfs->cache, inode->dindirect[dindirect_block_index], (void*)dindirect_block);
+            if (result != 0) {
+                kfree(data_block);
+                kfree(dindirect_block);
+                return result;
+            }
+            uint32_t indirect_block_num = dindirect_block->pointers[within_dindirect_index];
+
+            struct ktfs_indirect_block* indirect_block = kcalloc(1, sizeof(struct ktfs_indirect_block));
+            if (indirect_block == NULL) {
+                kfree(data_block);
+                kfree(dindirect_block);
+                return -ENOMEM;
+            }
+            result = cache_get_block(ktfs->cache, indirect_block_num, (void*)indirect_block);
+            if (result != 0) {
+                kfree(data_block);
+                kfree(dindirect_block);
+                kfree(indirect_block);
+                return result;
+            }
+            uint32_t data_block_num = indirect_block->pointers[within_indirect_index];
+
+            result = cache_get_block(ktfs->cache, data_block_num, (void*)data_block);
+            if (result != 0) {
+                kfree(data_block);
+                kfree(dindirect_block);
+                kfree(indirect_block);
+                return result;
+            }
+
+            kfree(dindirect_block);
+            kfree(indirect_block);
+        }
+
+        // Now, data_block has the data we want, so we copy the right parts of it to buf
+        // Note: both offsets are inclusive
+        if (i == start_block_index && i == end_block_index) {
+            // Both start and end block
+            memcpy(buf, &data_block->data.data[start_block_offset_bytes], end_block_offset_bytes - start_block_offset_bytes + 1);
+            return 0;
+        } else if (i == start_block_index) {
+            // Start block only
+            unsigned long bytes_to_copy = KTFS_BLKSZ - start_block_offset_bytes;
+            memcpy(&((uint8_t*)buf)[bytes_copied], &data_block->data.data[start_block_offset_bytes], bytes_to_copy);
+            bytes_copied += bytes_to_copy;
+        } else if (i == end_block_index) {
+            // End block only
+            memcpy(&((uint8_t*)buf)[bytes_copied], &data_block->data.data[0], end_block_offset_bytes + 1);
+            bytes_copied += end_block_offset_bytes + 1;
+            return 0;
+        } else {
+            // Middle block
+            memcpy(&((uint8_t*)buf)[bytes_copied], &data_block->data.data[0], KTFS_BLKSZ);
+            bytes_copied += KTFS_BLKSZ;
+        }
+    }
+
+    // If we haven't returned yet, something went wrong
+    // We never reached the end block (?)
+    return -EBADFD;
+}
+
 // OPENED FILES LIST HELPERS
 //
 
@@ -565,7 +707,7 @@ void ktfs_close(struct uio* uio) {
     struct ktfs_fs* ktfs = file->fs;
 
     remove_opened_file(&ktfs->opened_files, file);
-    kfree(file);
+    // kfree(file);
 }
 
 /**
@@ -576,8 +718,35 @@ void ktfs_close(struct uio* uio) {
  * @return Number of bytes read if successful, negative error code if error
  */
 long ktfs_fetch(struct uio* uio, void* buf, unsigned long len) {
-    // FIXME
-    return -ENOTSUP;
+    struct ktfs_file* file = (struct ktfs_file*)uio;
+
+    // Only read up to file size
+    if (len > file->size - file->pos) {
+        len = file->size - file->pos;
+    }
+
+    unsigned long start_byte = file->pos;
+    unsigned long end_byte = file->pos + len - 1;
+
+    struct ktfs_inode* inode = kcalloc(1, KTFS_INOSZ);
+    if (inode == NULL) {
+        return -ENOMEM;
+    }
+    int result = get_inode_from_dentry(file->fs, &file->dir_entry, &inode);
+    if (result != 0) {
+        kfree(inode);
+        return result;
+    }
+
+    result = ktfs_read_data(file->fs, inode, start_byte, end_byte, buf);
+    if (result != 0) {
+        kfree(inode);
+        return result;
+    }
+
+    file->pos += len;
+    kfree(inode);
+    return len;
 }
 
 /**
@@ -589,7 +758,7 @@ long ktfs_fetch(struct uio* uio, void* buf, unsigned long len) {
  * code if error
  */
 long ktfs_store(struct uio* uio, const void* buf, unsigned long len) {
-    // FIXME
+    // Not implemented yet (read-only file system for now)
     return -ENOTSUP;
 }
 
@@ -600,7 +769,7 @@ long ktfs_store(struct uio* uio, const void* buf, unsigned long len) {
  * @return 0 if successful, negative error code if error
  */
 int ktfs_create(struct filesystem* fs, const char* name) {
-    // FIXME
+    // Not implemented yet (read-only file system for now)
     return -ENOTSUP;
 }
 
@@ -611,7 +780,7 @@ int ktfs_create(struct filesystem* fs, const char* name) {
  * @return 0 if successful, negative error code if error
  */
 int ktfs_delete(struct filesystem* fs, const char* name) {
-    // FIXME
+    // Not implemented yet (read-only file system for now)
     return -ENOTSUP;
 }
 
@@ -633,8 +802,26 @@ int ktfs_delete(struct filesystem* fs, const char* name) {
  * @return 0 if successful, negative error code if error
  */
 int ktfs_cntl(struct uio* uio, int cmd, void* arg) {
-    // FIXME
-    return -ENOTSUP;
+    struct ktfs_file* file = (struct ktfs_file*)uio;
+
+    if (cmd == FCNTL_GETEND) {
+        *((unsigned long*)arg) = file->size;
+        return 0;
+    } else if (cmd == FCNTL_SETEND) {
+        // Not implemented yet (read-only file system for now)
+        return -ENOTSUP;
+    } else if (cmd == FCNTL_GETPOS) {
+        *((unsigned long*)arg) = file->pos;
+        return 0;
+    } else if (cmd == FCNTL_SETPOS) {
+        unsigned long new_pos = *((unsigned long*)arg);
+        if (new_pos > file->size) {
+            return -EINVAL;
+        }
+        file->pos = new_pos;
+        return 0;
+    }
+    return -EINVAL;
 }
 
 /**
@@ -642,8 +829,13 @@ int ktfs_cntl(struct uio* uio, int cmd, void* arg) {
  * @return None
  */
 void ktfs_flush(struct filesystem* fs) {
-    // FIXME
-    return;
+    struct ktfs_fs* ktfs = (struct ktfs_fs*)fs;
+
+    cache_flush(ktfs->cache);
+
+    // Although it seems like we might want to also close all opened files here, we're not supposed
+    // to, so this function seems like a bit of a waste. I guess it helps for writable filesystems
+    // though, since we would want to flush any unwritten data to disk.
 }
 
 /**
@@ -652,8 +844,10 @@ void ktfs_flush(struct filesystem* fs) {
  * @return None
  */
 void ktfs_listing_close(struct uio* uio) {
-    // FIXME
-    return;
+    struct ktfs_file* listing = (struct ktfs_file*)uio;
+    
+    remove_opened_file(&listing->fs->opened_files, listing);
+    // kfree(listing);
 }
 
 /**
@@ -665,6 +859,40 @@ void ktfs_listing_close(struct uio* uio) {
  * @return The size written to the buffer
  */
 long ktfs_listing_read(struct uio* uio, void* buf, unsigned long bufsz) {
-    // FIXME
-    return -ENOTSUP;
+    struct ktfs_file* listing = (struct ktfs_file*)uio;
+
+    // listing is guaranteed to be the ktfs_file representing the root directory
+    // Since it's returned in ktfs_open/ktfs_open_listing
+
+    int num_dentries = listing->size / KTFS_DENSZ;  // Must be exactly divisible
+
+    unsigned long bytes_copied = 0;
+
+    for (int i = 0; i < num_dentries; i++) {
+        // Get nth dentry
+        struct ktfs_dir_entry* dentry = kcalloc(1, KTFS_DENSZ);
+        if (dentry == NULL) {
+            return -ENOMEM;
+        }
+        int result = ktfs_get_nth_dentry(listing->fs, NULL, i, &dentry);
+        if (result != 0) {
+            kfree(dentry);
+            return result;
+        }
+
+        int filename_len = strlen(dentry->name);
+
+        if (bytes_copied + filename_len + 1 > bufsz) {
+            // Not enough space to copy this filename and null terminator
+            kfree(dentry);
+            return bytes_copied;
+        }
+
+        memcpy(&((uint8_t*)buf)[bytes_copied], dentry->name, filename_len);  // Includes null terminator
+        bytes_copied += filename_len;
+
+        kfree(dentry);
+    }
+
+    return bytes_copied;
 }
