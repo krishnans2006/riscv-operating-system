@@ -109,7 +109,7 @@ debug: kernel.elf
 ################################TEST_MAIN.C#################################
 
 # Add more test objects or test suites
-TEST_SUITE_OBJS = tests/testsuite_1.o
+TEST_SUITE_OBJS = tests/testsuite_ktfs.o
 TEST_OBJS = $(TEST_SUITE_OBJS) $(OBJS)
 
 test-kernel.elf: $(TEST_OBJS) tests/test_main.o blob.o

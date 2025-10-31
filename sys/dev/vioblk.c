@@ -83,6 +83,8 @@ struct vioblk_storage {
     struct virtq_desc descriptors[VIRTQ_LEN];  // Descriptor table
     struct virtq_avail * avail;  // Avail ring
     struct virtq_used * used;  // Used ring
+
+    struct lock lock;
 };
 
 // INTERNAL FUNCTION DECLARATIONS
@@ -244,6 +246,7 @@ void vioblk_attach(volatile struct virtio_mmio_regs* regs, int irqno) {
     vbd->used = kcalloc(1, VIRTQ_USED_SIZE(VIRTQ_LEN));
 
     condition_init(&vbd->used_ring_updated, "vbd.used_ring_updated");
+    lock_init(&vbd->lock);
 
     virtio_attach_virtq(regs, 0, VIRTQ_LEN, (uint64_t) vbd->descriptors, (uint64_t) vbd->used, (uint64_t) vbd->avail);
 
@@ -328,7 +331,8 @@ static long vioblk_storage_fetch(struct storage* sto, unsigned long long pos, vo
     vblk->descriptors[2].len   = 1;
     vblk->descriptors[2].flags = VIRTQ_DESC_F_WRITE;
 
-    
+    lock_acquire(&vblk->lock);
+
     uint16_t curr_used_idx = vblk->used->idx;
     
     vblk->avail->ring[vblk->avail->idx % VIRTQ_LEN] = 0;
@@ -342,6 +346,8 @@ static long vioblk_storage_fetch(struct storage* sto, unsigned long long pos, vo
         condition_wait(&vblk->used_ring_updated);
     }
     restore_interrupts(pie);
+
+    lock_release(&vblk->lock);
 
     if (*status != 0) return -EIO;
 
@@ -387,7 +393,8 @@ static long vioblk_storage_store(struct storage* sto, unsigned long long pos, co
     vblk->descriptors[2].len   = 1;
     vblk->descriptors[2].flags = VIRTQ_DESC_F_WRITE;
 
-    
+    lock_acquire(&vblk->lock);
+
     uint16_t curr_used_idx = vblk->used->idx;
     
     vblk->avail->ring[vblk->avail->idx % VIRTQ_LEN] = 0;
@@ -401,6 +408,8 @@ static long vioblk_storage_store(struct storage* sto, unsigned long long pos, co
         condition_wait(&vblk->used_ring_updated);
     }
     restore_interrupts(pie);
+
+    lock_release(&vblk->lock);
 
     if (*status != 0) return -EIO;
 
@@ -419,6 +428,8 @@ static int vioblk_storage_cntl(struct storage* sto, int op, void* arg) {
 
     if(op == FCNTL_GETEND){
        *(unsigned long long*)arg = vblk->base.capacity;
+
+       return 0;
     } 
 
     return -ENOTSUP;

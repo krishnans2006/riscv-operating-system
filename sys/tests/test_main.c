@@ -13,18 +13,19 @@
 #include "dev/rtc.h"
 #include "dev/uart.h"
 #include "dev/virtio.h"
+#include "dev/ramdisk.h"
 #include "timer.h"
 #include "string.h"
 #include "filesys.h"
 #include "error.h"
 #include "cache.h"
 
-// include testsuite(s)
-#include "testsuite_1.h"
+// include testsuites
+#include "testsuite_ktfs.h"
 
 #define CMNTNAME "c"
 #define DEVMNTNAME "dev"
-#define CDEVNAME "vioblk"
+#define CDEVNAME "ramdisk"
 #define CDEVINST 0
 
 #ifndef NUART // number of UARTs
@@ -52,8 +53,8 @@ void main(void) {
 
     mount_cdrive();
 
-    // Run the testsuite
-    run_testsuite_1();
+    // Run testsuites
+    run_testsuite_ktfs(CMNTNAME);
 }
 
 void attach_devices(void) {
@@ -67,6 +68,8 @@ void attach_devices(void) {
     
     for (i = 0; i < NVIODEV; i++)
         attach_virtio((void*)VIRTIO_MMIO_BASE(i), VIRTIO0_INTR_SRCNO+i);
+
+    ramdisk_attach();
 
     result = mount_devfs(DEVMNTNAME);
 
