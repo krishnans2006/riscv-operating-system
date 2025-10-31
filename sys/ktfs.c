@@ -230,11 +230,11 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
     // Is the file already opened?
     struct ktfs_file* opened_file = get_opened_file(&ktfs->opened_files, name);
     if (opened_file != NULL) {
-        *uioptr = (struct uio*)opened_file;
-        return 0;
+        // File is busy
+        return -EBUSY;
     }
 
-    // It's not, so we need to find it
+    // Find the file
 
     // Get root inode
     struct ktfs_inode* root_inode = kcalloc(1, KTFS_INOSZ);
