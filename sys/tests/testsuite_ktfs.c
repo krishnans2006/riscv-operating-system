@@ -19,7 +19,7 @@ void run_testsuite_ktfs(const char* name) {
 int test1() {
     // Open root directory
     struct uio* uio;
-    int result = open_file("c", "\\hello", &uio);
+    int result = open_file("c", "hello", &uio);
     if (result != 0) {
         kprintf("open_file failed: %s\n", error_name(result));
         return result;
