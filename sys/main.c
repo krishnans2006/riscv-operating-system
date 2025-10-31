@@ -18,8 +18,9 @@
 #include "string.h"
 #include "thread.h"
 #include "timer.h"
+#include "elf.h"
 
-#define INITEXE ""  // FIXME
+#define INITEXE "trek"  // FIXME
 
 #define CMNTNAME "c"
 #define DEVMNTNAME "dev"
@@ -109,7 +110,9 @@ void mount_cdrive(void) {
 
 void run_init(void) {
     struct uio* initexe;
+    struct uio* console_uio;
     int result;
+    void (*eptr)(void) = NULL;
 
     result = open_file(CMNTNAME, INITEXE, &initexe);
 
@@ -121,4 +124,25 @@ void run_init(void) {
     // FIXME
     //  Run your executable here
     //  Note that trek takes in a uio object to output to the console
+
+    result = elf_load(initexe, &eptr);
+
+    if (result != 0) {
+        kprintf("elf_load failed %s\n", error_name(result));
+        halt_failure();
+    }
+
+    uio_close(initexe);
+
+    result = open_file(DEVMNTNAME, "uart0", &console_uio);
+    if (result != 0) {
+        kprintf("uart open failed %s\n", error_name(result));
+        halt_failure();
+    }
+
+    ((void (*)(struct uio*))eptr)(console_uio);
+
+    uio_close(console_uio);
+
+    halt_success();
 }
