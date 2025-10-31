@@ -101,11 +101,11 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
         //eviction write-back
         if(cache->tail->dirty == 1){
             feedback = storage_store(cache->backing, cache->tail->pos, cache->tail->block, CACHE_BLKSZ);
-            if (feedback != 0) return feedback;
+            if (feedback < 0) return feedback;
         }
 
         feedback = storage_fetch(cache->backing, pos, cache->tail->block, CACHE_BLKSZ);
-        if(feedback != 0) return feedback;
+        if (feedback < 0) return feedback;
 
         struct cache_entry* entry = cache->tail;
         cache->tail->dirty = 0;
@@ -169,7 +169,7 @@ int cache_flush(struct cache* cache) {
 
         if(cur->dirty == 1){
             feedback = storage_store(cache->backing, cur->pos, cur->block, CACHE_BLKSZ);
-            if(feedback != 0 ) return feedback;
+            if (feedback < 0) return feedback;
         }
         prev = cur;
         cur = cur->next;
