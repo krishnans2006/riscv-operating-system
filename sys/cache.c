@@ -43,6 +43,9 @@ struct cache_entry{
 
     struct cache_entry *prev;
     struct cache_entry *next;
+
+    int open;
+
 };
 
 // INTERNAL FUNCTION DECLARATIONS
@@ -99,29 +102,48 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
 
     if(hit == NULL){
         //eviction write-back
-        if(cache->tail->dirty == 1){
-            feedback = storage_store(cache->backing, cache->tail->pos, cache->tail->block, CACHE_BLKSZ);
+        
+
+        struct cache_entry* entry = cache->tail;
+
+        while(entry->open == 1){
+
+            if(entry == cache->head){
+                return -EBUSY;
+            }
+
+            entry = entry->prev;
+        }
+
+        if(entry->dirty == 1){
+            feedback = storage_store(cache->backing, entry->pos, entry->block, CACHE_BLKSZ);
             if (feedback < 0) return feedback;
         }
 
-        feedback = storage_fetch(cache->backing, pos, cache->tail->block, CACHE_BLKSZ);
+        feedback = storage_fetch(cache->backing, pos, entry->block, CACHE_BLKSZ);
         if (feedback < 0) return feedback;
 
-        struct cache_entry* entry = cache->tail;
-        cache->tail->dirty = 0;
-        cache->tail->pos = pos;
+        entry->dirty = 0;
+        entry->pos = pos;
+        entry->open = 1;
 
-        remove_entry(cache, cache->tail);
+        remove_entry(cache, entry);
         insert_head(cache, entry);
 
         *pptr = cache->head->block;
     } else {
+
+        if(hit->open == 1){
+            return -EACCESS;
+        }
         *pptr = hit->block;
 
         //move hit to the front of the linked list
         remove_entry(cache, hit);
 
         insert_head(cache, hit);
+
+        hit -> open = 1;
         
     }
 
@@ -146,6 +168,7 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
         if(cur->block == pblk){
             
             cur->dirty = dirty;
+            cur->open = 0;
             return;
         }
        cur = cur->next;
@@ -243,10 +266,13 @@ void init_linkedlist(struct cache* cache){
         cur->dirty = 0;
         cur->pos   = -1;
         cur->block = kmalloc(CACHE_BLKSZ);
+        cur->open = 0;
 
 
         prev = cur;
         cur = next;
+
+        
     }
 
     cur->next = NULL;
@@ -254,6 +280,7 @@ void init_linkedlist(struct cache* cache){
     cur->dirty = 0;
     cur->pos   = -1;
     cur->block = kmalloc(CACHE_BLKSZ);
+    cur->open = 0;
 
     cache->tail = cur;
 
