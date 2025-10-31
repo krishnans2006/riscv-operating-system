@@ -31,24 +31,46 @@
 // INTERNAL TYPE DEFINITIONS
 //
 
+struct opened_files {
+    struct opened_file* head;
+    struct opened_file* tail;
+};
+
+struct opened_file {
+    struct ktfs_file* file;
+    struct opened_file* next;
+};
+
 struct ktfs_fs {
-    struct filesystem base;
-    struct cache* cache;
+    struct filesystem base;  // castable from struct filesystem*
+    struct cache* cache;  // stores all other info (storage, cache, etc.)
+    struct opened_files opened_files;  // list of opened files
+};
+
+struct ktfs_superblock_block {
+    struct ktfs_superblock fields;
+    uint8_t padding[KTFS_BLKSZ - sizeof(struct ktfs_superblock)];
+};
+
+struct ktfs_inode_block {
+    struct ktfs_inode inodes[KTFS_BLKSZ / KTFS_INOSZ];
+};
+
+struct ktfs_indirect_block {
+    uint32_t pointers[KTFS_BLKSZ / sizeof(uint32_t)];
+};
+
+struct ktfs_directory {
+    struct ktfs_dir_entry entries[KTFS_BLKSZ / KTFS_DENSZ];
 };
 
 /// @brief File struct for a file in the Keegan Teal Filesystem
 struct ktfs_file {
-    struct uio uio;  // uio struct for file I/O operations
+    struct uio base;  // uio struct as base, to make this castable from struct uio*
     struct ktfs_dir_entry dir_entry;  // dentry
     unsigned long size;  // size of the file in bytes
     unsigned long pos;  // current position in file for read/write operations
-
-    struct ktfs_file* next;  // next file in linked list, for directory listing
-};
-
-struct ktfs_listing_uio {
-    struct uio base;
-    struct ktfs_file* file;
+    struct ktfs_fs* fs;  // pointer to the file system this file belongs to
 };
 
 // INTERNAL FUNCTION DECLARATIONS
@@ -66,8 +88,25 @@ void ktfs_flush(struct filesystem* fs);
 void ktfs_listing_close(struct uio* uio);
 long ktfs_listing_read(struct uio *uio, void *buf, unsigned long bufsz);
 
+static int get_root_inode(struct ktfs_fs* ktfs, struct ktfs_inode** root_inode_ptr, int* root_inode_num_ptr);
+static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* dentry, struct ktfs_inode** inode_ptr);
+static int ktfs_open_listing(struct ktfs_fs *ktfs, struct uio **uioptr);
+static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** uioptr);
+static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inode, int n, struct ktfs_dir_entry** dentry_ptr);
+
+static struct ktfs_file* get_opened_file(struct opened_files* ofiles, const char* name);
+static int add_opened_file(struct opened_files* ofiles, struct ktfs_file* file);
+static void remove_opened_file(struct opened_files* ofiles, struct ktfs_file* file);
+
 // INTERNAL GLOBAL VARIABLES
 //
+
+static const struct uio_intf ktfs_file_uio_intf = {
+    .close = &ktfs_close,
+    .read = &ktfs_fetch,
+    .write = &ktfs_store,
+    .cntl = &ktfs_cntl,
+};
 
 static const struct uio_intf ktfs_listing_uio_intf = {
     .close = &ktfs_listing_close,
@@ -75,6 +114,400 @@ static const struct uio_intf ktfs_listing_uio_intf = {
     .write = NULL,
     .cntl = NULL,
 };
+
+// HELPER FUNCTIONS
+//
+
+static int get_root_inode(struct ktfs_fs* ktfs, struct ktfs_inode** root_inode_ptr, int* root_inode_num_ptr) {
+    // Read superblock
+    struct ktfs_superblock_block* superblock = kcalloc(1, sizeof(struct ktfs_superblock_block));
+    if (superblock == NULL) {
+        return -ENOMEM;
+    }
+    int result = cache_get_block(ktfs->cache, 0, (void*)superblock);
+    if (result != 0) {
+        return result;
+    }
+
+    // Find the root inode
+    uint16_t root_inode_num = superblock->fields.root_directory_inode;
+
+    uint16_t inodes_start_block = 1 + superblock->fields.inode_bitmap_block_count + superblock->fields.bitmap_block_count;
+    uint16_t inode_block_offset = (root_inode_num * KTFS_INOSZ) / KTFS_BLKSZ;
+    uint16_t inode_offset_within_block = root_inode_num % (KTFS_BLKSZ / KTFS_INOSZ);
+
+    struct ktfs_inode_block* inode_block = kcalloc(1, sizeof(struct ktfs_inode_block));
+    if (inode_block == NULL) {
+        kfree(superblock);
+        return -ENOMEM;
+    }
+    
+    result = cache_get_block(ktfs->cache, inodes_start_block + inode_block_offset, (void*)inode_block);
+    if (result != 0) {
+        kfree(superblock);
+        kfree(inode_block);
+        return result;
+    }
+    
+    *root_inode_ptr = &inode_block->inodes[inode_offset_within_block];
+    *root_inode_num_ptr = root_inode_num;
+
+    kfree(superblock);
+    kfree(inode_block);
+    return 0;
+}
+
+static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* dentry, struct ktfs_inode** inode_ptr) {
+    // Read superblock
+    struct ktfs_superblock_block* superblock = kcalloc(1, sizeof(struct ktfs_superblock_block));
+    if (superblock == NULL) {
+        return -ENOMEM;
+    }
+    int result = cache_get_block(ktfs->cache, 0, (void*)superblock);
+    if (result != 0) {
+        return result;
+    }
+
+    uint16_t inode_num = dentry->inode;
+
+    uint16_t inodes_start_block = 1 + superblock->fields.inode_bitmap_block_count + superblock->fields.bitmap_block_count;
+    uint16_t inode_block_offset = (inode_num * KTFS_INOSZ) / KTFS_BLKSZ;
+    uint16_t inode_offset_within_block = inode_num % (KTFS_BLKSZ / KTFS_INOSZ);
+
+    struct ktfs_inode_block* inode_block = kcalloc(1, sizeof(struct ktfs_inode_block));
+    if (inode_block == NULL) {
+        kfree(superblock);
+        return -ENOMEM;
+    }
+    
+    result = cache_get_block(ktfs->cache, inodes_start_block + inode_block_offset, (void*)inode_block);
+    if (result != 0) {
+        kfree(superblock);
+        kfree(inode_block);
+        return result;
+    }
+    
+    *inode_ptr = &inode_block->inodes[inode_offset_within_block];
+
+    kfree(superblock);
+    kfree(inode_block);
+    return 0;
+}
+
+static int ktfs_open_listing(struct ktfs_fs* ktfs, struct uio** uioptr) {
+    // Get root inode
+    struct ktfs_inode* root_inode = kcalloc(1, KTFS_INOSZ);
+    if (root_inode == NULL) {
+        return -ENOMEM;
+    }
+    int root_inode_num;
+    int result = get_root_inode(ktfs, &root_inode, &root_inode_num);
+    if (result != 0) {
+        kfree(root_inode);
+        return result;
+    }
+
+    // Convert to listing uio
+    struct ktfs_file* listing = kcalloc(1, sizeof(struct ktfs_file));
+    if (listing == NULL) {
+        kfree(root_inode);
+        return -ENOMEM;
+    }
+
+    listing->base.intf = &ktfs_listing_uio_intf;
+    listing->dir_entry.inode = root_inode_num;
+    strncpy(listing->dir_entry.name, "\\", KTFS_MAX_FILENAME_LEN);
+    listing->size = root_inode->size;
+    listing->pos = 0;
+    listing->fs = ktfs;
+
+    *uioptr = (struct uio*)listing;
+
+    return 0;
+}
+
+static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** uioptr) {
+    // Is the file already opened?
+    struct ktfs_file* opened_file = get_opened_file(&ktfs->opened_files, name);
+    if (opened_file != NULL) {
+        *uioptr = (struct uio*)opened_file;
+        return 0;
+    }
+
+    // It's not, so we need to find it
+
+    // Get root inode
+    struct ktfs_inode* root_inode = kcalloc(1, KTFS_INOSZ);
+    if (root_inode == NULL) {
+        return -ENOMEM;
+    }
+    int root_inode_num;
+    int result = get_root_inode(ktfs, &root_inode, &root_inode_num);
+    if (result != 0) {
+        kfree(root_inode);
+        return result;
+    }
+
+    // Go through the root directory to find the file
+    struct ktfs_directory* root_directory = kcalloc(1, sizeof(struct ktfs_directory));
+    if (root_directory == NULL) {
+        kfree(root_inode);
+        return -ENOMEM;
+    }
+
+    int num_dentries = root_inode->size / KTFS_DENSZ;  // Must be exactly divisible
+    
+    for (int i = 0; i < num_dentries; i++) {
+        // Get nth dentry
+        struct ktfs_dir_entry* dentry = kcalloc(1, KTFS_DENSZ);
+        if (dentry == NULL) {
+            kfree(root_inode);
+            kfree(root_directory);
+            return -ENOMEM;
+        }
+        result = ktfs_get_nth_dentry(ktfs, root_inode, i, &dentry);
+        if (result != 0) {
+            kfree(root_inode);
+            kfree(root_directory);
+            kfree(dentry);
+            return result;
+        }
+        // Check if this is the file we want
+        if (strcmp(dentry->name, name) == 0) {
+            // Found the file, get its inode (for file size, etc.)
+            struct ktfs_inode* file_inode = kcalloc(1, KTFS_INOSZ);
+            if (file_inode == NULL) {
+                kfree(root_inode);
+                kfree(root_directory);
+                kfree(dentry);
+                return -ENOMEM;
+            }
+            result = get_inode_from_dentry(ktfs, dentry, &file_inode);
+            if (result != 0) {
+                kfree(root_inode);
+                kfree(root_directory);
+                kfree(dentry);
+                kfree(file_inode);
+                return result;
+            }
+
+            // Convert to file uio, add to opened files list, and return
+            struct ktfs_file* file = kcalloc(1, sizeof(struct ktfs_file));
+            if (file == NULL) {
+                kfree(root_inode);
+                kfree(root_directory);
+                kfree(dentry);
+                kfree(file_inode);
+                return -ENOMEM;
+            }
+
+            file->base.intf = &ktfs_file_uio_intf;
+            file->dir_entry = *dentry;
+            strncpy(file->dir_entry.name, name, KTFS_MAX_FILENAME_LEN);
+            file->size = file_inode->size;
+            file->pos = 0;
+            file->fs = ktfs;
+
+            result = add_opened_file(&ktfs->opened_files, file);
+            if (result != 0) {
+                kfree(root_inode);
+                kfree(root_directory);
+                kfree(dentry);
+                kfree(file_inode);
+                return result;
+            }
+
+            *uioptr = (struct uio*)file;
+
+            kfree(root_inode);
+            kfree(root_directory);
+            kfree(dentry);
+            kfree(file_inode);
+            return 0;
+        }
+        kfree(dentry);
+    }
+
+    // File not found
+    kfree(root_inode);
+    kfree(root_directory);
+    return -ENOENT;
+}
+
+static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inode, int n, struct ktfs_dir_entry** dentry_ptr) {
+    // This function needs to deal with direct, indirect, and doubly-indirect blocks
+    // This is difficult! So, we split it into three cases
+
+    int num_dentries_per_block = KTFS_BLKSZ / KTFS_DENSZ;
+    int num_indirections_per_indirect_block = KTFS_BLKSZ / sizeof(uint32_t);
+
+    if (n < KTFS_NUM_DIRECT_DATA_BLOCKS * num_dentries_per_block) {
+        // Direct block case
+        int block_index = n / num_dentries_per_block;
+        int entry_index = n % num_dentries_per_block;
+
+        struct ktfs_directory* dir_block = kcalloc(1, sizeof(struct ktfs_directory));
+        if (dir_block == NULL) {
+            return -ENOMEM;
+        }
+        int result = cache_get_block(ktfs->cache, dir_inode->block[block_index], (void*)dir_block);
+        if (result != 0) {
+            kfree(dir_block);
+            return result;
+        }
+
+        *dentry_ptr = &dir_block->entries[entry_index];
+        kfree(dir_block);
+    } else if (n < (KTFS_NUM_DIRECT_DATA_BLOCKS + KTFS_NUM_INDIRECT_BLOCKS * num_indirections_per_indirect_block) * num_dentries_per_block) {
+        // Indirect block case
+        // Note: We only have one indirect block, but we still use KTFS_NUM_INDIRECT_BLOCKS at times to make it more readable
+
+        int new_n = n - KTFS_NUM_DIRECT_DATA_BLOCKS * num_dentries_per_block;  // Adjusted for direct blocks
+        // int indirect_block_index = new_n / (num_indirections_per_indirect_block * num_dentries_per_block);
+        int within_indirect_index = (new_n / num_dentries_per_block) % num_indirections_per_indirect_block;
+        int entry_index = new_n % num_dentries_per_block;
+
+        struct ktfs_indirect_block* indirect_block = kcalloc(1, sizeof(struct ktfs_indirect_block));
+        if (indirect_block == NULL) {
+            return -ENOMEM;
+        }
+        int result = cache_get_block(ktfs->cache, dir_inode->indirect, (void*)indirect_block);
+        if (result != 0) {
+            kfree(indirect_block);
+            return result;
+        }
+        uint32_t data_block_num = indirect_block->pointers[within_indirect_index];
+
+        struct ktfs_directory* dir_block = kcalloc(1, sizeof(struct ktfs_directory));
+        if (dir_block == NULL) {
+            kfree(indirect_block);
+            return -ENOMEM;
+        }
+        result = cache_get_block(ktfs->cache, data_block_num, (void*)dir_block);
+        if (result != 0) {
+            kfree(indirect_block);
+            kfree(dir_block);
+            return result;
+        }
+
+        *dentry_ptr = &dir_block->entries[entry_index];
+        kfree(indirect_block);
+        kfree(dir_block);
+    } else {
+        // Doubly-indirect block case
+        int new_n = n - (KTFS_NUM_DIRECT_DATA_BLOCKS + KTFS_NUM_INDIRECT_BLOCKS * num_indirections_per_indirect_block) * num_dentries_per_block;
+        int dindirect_block_index = new_n / (num_indirections_per_indirect_block * num_indirections_per_indirect_block * num_dentries_per_block);
+        int within_dindirect_index = (new_n / (num_indirections_per_indirect_block * num_dentries_per_block)) % num_indirections_per_indirect_block;
+        int within_indirect_index = (new_n / num_dentries_per_block) % num_indirections_per_indirect_block;
+        int entry_index = new_n % num_dentries_per_block;
+
+        struct ktfs_indirect_block* dindirect_block = kcalloc(1, sizeof(struct ktfs_indirect_block));
+        if (dindirect_block == NULL) {
+            return -ENOMEM;
+        }
+        int result = cache_get_block(ktfs->cache, dir_inode->dindirect[dindirect_block_index], (void*)dindirect_block);
+        if (result != 0) {
+            kfree(dindirect_block);
+            return result;
+        }
+        uint32_t indirect_block_num = dindirect_block->pointers[within_dindirect_index];
+
+        struct ktfs_indirect_block* indirect_block = kcalloc(1, sizeof(struct ktfs_indirect_block));
+        if (indirect_block == NULL) {
+            kfree(dindirect_block);
+            return -ENOMEM;
+        }
+        result = cache_get_block(ktfs->cache, indirect_block_num, (void*)indirect_block);
+        if (result != 0) {
+            kfree(dindirect_block);
+            kfree(indirect_block);
+            return result;
+        }
+        uint32_t data_block_num = indirect_block->pointers[within_indirect_index];
+
+        struct ktfs_directory* dir_block = kcalloc(1, sizeof(struct ktfs_directory));
+        if (dir_block == NULL) {
+            kfree(dindirect_block);
+            kfree(indirect_block);
+            return -ENOMEM;
+        }
+        result = cache_get_block(ktfs->cache, data_block_num, (void*)dir_block);
+        if (result != 0) {
+            kfree(dindirect_block);
+            kfree(indirect_block);
+            kfree(dir_block);
+            return result;
+        }
+
+        *dentry_ptr = &dir_block->entries[entry_index];
+        kfree(dindirect_block);
+        kfree(indirect_block);
+        kfree(dir_block);
+    }
+
+    return 0;
+}
+
+// OPENED FILES LIST HELPERS
+//
+
+static struct ktfs_file* get_opened_file(struct opened_files* ofiles, const char* name) {
+    struct opened_file* cur = ofiles->head;
+    while (cur != NULL) {
+        if (strcmp(cur->file->dir_entry.name, name) == 0) {
+            return cur->file;
+        }
+        cur = cur->next;
+    }
+    return NULL;
+}
+
+static int add_opened_file(struct opened_files* ofiles, struct ktfs_file* file) {
+    struct opened_file* new_ofile = kcalloc(1, sizeof(struct opened_file));
+    if (new_ofile == NULL) {
+        return -ENOMEM;
+    }
+    new_ofile->file = file;
+    new_ofile->next = NULL;
+
+    if (ofiles->head == NULL) {
+        ofiles->head = new_ofile;
+        ofiles->tail = new_ofile;
+    } else {
+        ofiles->tail->next = new_ofile;
+        ofiles->tail = new_ofile;
+    }
+
+    return 0;
+}
+
+static void remove_opened_file(struct opened_files* ofiles, struct ktfs_file* file) {
+    struct opened_file* cur = ofiles->head;
+    struct opened_file* prev = NULL;
+
+    while (cur != NULL) {
+        if (cur->file == file) {
+            // Found it
+            if (prev == NULL) {
+                // The file is at the head
+                ofiles->head = cur->next;
+                // Is it the only file?
+                if (ofiles->head == NULL) {
+                    ofiles->tail = NULL;
+                }
+            } else {
+                prev->next = cur->next;
+                if (cur->next == NULL) {
+                    ofiles->tail = prev;
+                }
+            }
+            kfree(cur);
+            return;
+        }
+        prev = cur;
+        cur = cur->next;
+    }
+}
 
 /**
  * @brief Mounts the file system with associated backing cache
@@ -94,6 +527,8 @@ int mount_ktfs(const char* name, struct cache* cache) {
     fs->base.flush = &ktfs_flush;
 
     fs->cache = cache;
+    fs->opened_files.head = NULL;
+    fs->opened_files.tail = NULL;
 
     return attach_filesystem(name, (struct filesystem*)fs);
 }
@@ -114,16 +549,10 @@ int ktfs_open(struct filesystem* fs, const char* name, struct uio** uioptr) {
     }
 
     if (strcmp(name, "\\") == 0) {
-        // Listing
-        struct ktfs_listing_uio* listing_uio =
-            kcalloc(1, sizeof(struct ktfs_listing_uio));
-
-        if (listing_uio == NULL) {
-            return -ENOMEM;
-        }
+        return ktfs_open_listing(ktfs, uioptr);
+    } else {
+        return ktfs_open_file(ktfs, name, uioptr);
     }
-
-    return -ENOTSUP;
 }
 
 /**
@@ -132,8 +561,11 @@ int ktfs_open(struct filesystem* fs, const char* name, struct uio** uioptr) {
  * @return None
  */
 void ktfs_close(struct uio* uio) {
-    // FIXME
-    return;
+    struct ktfs_file* file = (struct ktfs_file*)uio;
+    struct ktfs_fs* ktfs = file->fs;
+
+    remove_opened_file(&ktfs->opened_files, file);
+    kfree(file);
 }
 
 /**
