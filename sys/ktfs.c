@@ -144,6 +144,8 @@ static int get_root_inode(struct ktfs_fs* ktfs, struct ktfs_inode** root_inode_p
     uint16_t inode_block_offset = (root_inode_num * KTFS_INOSZ) / KTFS_BLKSZ;
     uint16_t inode_offset_within_block = root_inode_num % (KTFS_BLKSZ / KTFS_INOSZ);
 
+    cache_release_block(ktfs->cache, (void*)superblock, 0);
+
     struct ktfs_inode_block* inode_block;
     result = cache_get_block_by_index(ktfs->cache, inodes_start_block + inode_block_offset, (void**)&inode_block);
     if (result != 0) {
@@ -152,6 +154,8 @@ static int get_root_inode(struct ktfs_fs* ktfs, struct ktfs_inode** root_inode_p
     
     *root_inode_ptr = &inode_block->inodes[inode_offset_within_block];
     *root_inode_num_ptr = root_inode_num;
+
+    cache_release_block(ktfs->cache, (void*)inode_block, 0);
 
     return 0;
 }
@@ -170,6 +174,8 @@ static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* de
     uint16_t inode_block_offset = (inode_num * KTFS_INOSZ) / KTFS_BLKSZ;
     uint16_t inode_offset_within_block = inode_num % (KTFS_BLKSZ / KTFS_INOSZ);
 
+    cache_release_block(ktfs->cache, (void*)superblock, 0);
+
     struct ktfs_inode_block* inode_block;
     result = cache_get_block_by_index(ktfs->cache, inodes_start_block + inode_block_offset, (void**)&inode_block);
     if (result != 0) {
@@ -177,6 +183,8 @@ static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* de
     }
     
     *inode_ptr = &inode_block->inodes[inode_offset_within_block];
+
+    cache_release_block(ktfs->cache, (void*)inode_block, 0);
 
     return 0;
 }
@@ -283,12 +291,13 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
     int num_dentries_per_block = KTFS_BLKSZ / KTFS_DENSZ;
     int num_indirections_per_indirect_block = KTFS_BLKSZ / sizeof(uint32_t);
 
+    struct ktfs_directory* dir_block;
+
     if (n < KTFS_NUM_DIRECT_DATA_BLOCKS * num_dentries_per_block) {
         // Direct block case
         int block_index = n / num_dentries_per_block;
         int entry_index = n % num_dentries_per_block;
 
-        struct ktfs_directory* dir_block;
         int result = cache_get_block_by_index(ktfs->cache, dir_inode->block[block_index], (void**)&dir_block);
         if (result != 0) {
             return result;
@@ -311,7 +320,8 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         }
         uint32_t data_block_num = indirect_block->pointers[within_indirect_index];
 
-        struct ktfs_directory* dir_block;
+        cache_release_block(ktfs->cache, (void*)indirect_block, 0);
+
         result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&dir_block);
         if (result != 0) {
             return result;
@@ -333,6 +343,8 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         }
         uint32_t indirect_block_num = dindirect_block->pointers[within_dindirect_index];
 
+        cache_release_block(ktfs->cache, (void*)dindirect_block, 0);
+
         struct ktfs_indirect_block* indirect_block;
         result = cache_get_block_by_index(ktfs->cache, indirect_block_num, (void**)&indirect_block);
         if (result != 0) {
@@ -340,7 +352,8 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         }
         uint32_t data_block_num = indirect_block->pointers[within_indirect_index];
 
-        struct ktfs_directory* dir_block;
+        cache_release_block(ktfs->cache, (void*)indirect_block, 0);
+
         result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&dir_block);
         if (result != 0) {
             return result;
@@ -348,6 +361,8 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
 
         *dentry_ptr = &dir_block->entries[entry_index];
     }
+
+    cache_release_block(ktfs->cache, (void*)dir_block, 0);
 
     return 0;
 }
@@ -395,6 +410,8 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
             }
             uint32_t data_block_num = indirect_block->pointers[within_indirect_index];
 
+            cache_release_block(ktfs->cache, (void*)indirect_block, 0);
+
             result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&data_block);
             if (result != 0) {
                 return result;
@@ -413,12 +430,16 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
             }
             uint32_t indirect_block_num = dindirect_block->pointers[within_dindirect_index];
 
+            cache_release_block(ktfs->cache, (void*)dindirect_block, 0);
+
             struct ktfs_indirect_block* indirect_block;
             result = cache_get_block_by_index(ktfs->cache, indirect_block_num, (void**)&indirect_block);
             if (result != 0) {
                 return result;
             }
             uint32_t data_block_num = indirect_block->pointers[within_indirect_index];
+
+            cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
             result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&data_block);
             if (result != 0) {
@@ -447,6 +468,8 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
             memcpy(&((uint8_t*)buf)[bytes_copied], &data_block->data.data[0], KTFS_BLKSZ);
             bytes_copied += KTFS_BLKSZ;
         }
+
+        cache_release_block(ktfs->cache, (void*)data_block, 0);
     }
 
     // If we haven't returned yet, something went wrong
