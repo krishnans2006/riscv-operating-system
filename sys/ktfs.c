@@ -298,7 +298,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         int block_index = n / num_dentries_per_block;
         int entry_index = n % num_dentries_per_block;
 
-        int result = cache_get_block_by_index(ktfs->cache, dir_inode->block[block_index], (void**)&dir_block);
+        int result = cache_get_block_by_index(ktfs->cache, dir_inode->block[block_index] + 4, (void**)&dir_block);
         if (result != 0) {
             return result;
         }
@@ -314,7 +314,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         int entry_index = new_n % num_dentries_per_block;
 
         struct ktfs_indirect_block* indirect_block;
-        int result = cache_get_block_by_index(ktfs->cache, dir_inode->indirect, (void**)&indirect_block);
+        int result = cache_get_block_by_index(ktfs->cache, dir_inode->indirect + 4, (void**)&indirect_block);
         if (result != 0) {
             return result;
         }
@@ -322,7 +322,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
 
         cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
-        result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&dir_block);
+        result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&dir_block);
         if (result != 0) {
             return result;
         }
@@ -337,7 +337,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         int entry_index = new_n % num_dentries_per_block;
 
         struct ktfs_indirect_block* dindirect_block;
-        int result = cache_get_block_by_index(ktfs->cache, dir_inode->dindirect[dindirect_block_index], (void**)&dindirect_block);
+        int result = cache_get_block_by_index(ktfs->cache, dir_inode->dindirect[dindirect_block_index] + 4, (void**)&dindirect_block);
         if (result != 0) {
             return result;
         }
@@ -346,7 +346,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         cache_release_block(ktfs->cache, (void*)dindirect_block, 0);
 
         struct ktfs_indirect_block* indirect_block;
-        result = cache_get_block_by_index(ktfs->cache, indirect_block_num, (void**)&indirect_block);
+        result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 4, (void**)&indirect_block);
         if (result != 0) {
             return result;
         }
@@ -354,7 +354,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
 
         cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
-        result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&dir_block);
+        result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&dir_block);
         if (result != 0) {
             return result;
         }
@@ -395,7 +395,7 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
         if (i < KTFS_NUM_DIRECT_DATA_BLOCKS) {
             // Direct block case
             uint32_t data_block_num = inode->block[i];
-            int result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&data_block);
+            int result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&data_block);
             if (result != 0) {
                 return result;
             }
@@ -404,7 +404,7 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
             int within_indirect_index = (i - KTFS_NUM_DIRECT_DATA_BLOCKS) % num_indirections_per_indirect_block;
             
             struct ktfs_indirect_block* indirect_block;
-            int result = cache_get_block_by_index(ktfs->cache, inode->indirect, (void**)&indirect_block);
+            int result = cache_get_block_by_index(ktfs->cache, inode->indirect + 4, (void**)&indirect_block);
             if (result != 0) {
                 return result;
             }
@@ -412,7 +412,7 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
 
             cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
-            result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&data_block);
+            result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&data_block);
             if (result != 0) {
                 return result;
             }
@@ -424,7 +424,7 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
             int within_indirect_index = new_i % num_indirections_per_indirect_block;
 
             struct ktfs_indirect_block* dindirect_block;
-            int result = cache_get_block_by_index(ktfs->cache, inode->dindirect[dindirect_block_index], (void**)&dindirect_block);
+            int result = cache_get_block_by_index(ktfs->cache, inode->dindirect[dindirect_block_index] + 4, (void**)&dindirect_block);
             if (result != 0) {
                 return result;
             }
@@ -433,7 +433,7 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
             cache_release_block(ktfs->cache, (void*)dindirect_block, 0);
 
             struct ktfs_indirect_block* indirect_block;
-            result = cache_get_block_by_index(ktfs->cache, indirect_block_num, (void**)&indirect_block);
+            result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 4, (void**)&indirect_block);
             if (result != 0) {
                 return result;
             }
@@ -441,7 +441,7 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
 
             cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
-            result = cache_get_block_by_index(ktfs->cache, data_block_num, (void**)&data_block);
+            result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&data_block);
             if (result != 0) {
                 return result;
             }
