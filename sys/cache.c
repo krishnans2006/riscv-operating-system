@@ -34,6 +34,7 @@ struct cache{
     struct cache_entry * head;
     struct cache_entry * tail;
 
+    struct lock lock;
 };
 
 struct cache_entry{
@@ -45,7 +46,7 @@ struct cache_entry{
     struct cache_entry *next;
 
     int open;
-
+    struct condition cond;
 };
 
 // INTERNAL FUNCTION DECLARATIONS
@@ -74,6 +75,8 @@ int create_cache(struct storage* disk, struct cache** cptr) {
 
     init_linkedlist(c);
 
+    lock_init(&c->lock);
+
     *cptr = c;
     
     return 0;
@@ -91,10 +94,12 @@ int create_cache(struct storage* disk, struct cache** cptr) {
  */
 int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
     // FIXME
-    
+    //I think one thread can only hold onto the block at a time. Otherwise you would have problems where one thread could be modifying the block while another block is reading
     if(pos % CACHE_BLKSZ){
         return -EINVAL;
     }
+
+    lock_acquire(&cache->lock);
 
     struct cache_entry* hit = find_cache(cache, pos);
 
@@ -134,7 +139,7 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
     } else {
 
         if(hit->open == 1){
-            return -EACCESS;
+            condition_wait(&hit->cond);
         }
         *pptr = hit->block;
 
@@ -146,6 +151,8 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
         hit -> open = 1;
         
     }
+
+    lock_release(&cache->lock);
 
     return 0;
 }
@@ -161,6 +168,8 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
  */
 void cache_release_block(struct cache* cache, void* pblk, int dirty) {
     // FIXME
+
+    
     
     struct cache_entry * cur = cache->head;
     while(cur){
@@ -169,10 +178,14 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
             
             cur->dirty = dirty;
             cur->open = 0;
+            condition_broadcast(&cur->cond);
             return;
         }
        cur = cur->next;
+       
     }
+
+
     //return 0;
 }
 
@@ -183,12 +196,19 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
  */
 int cache_flush(struct cache* cache) {
     // FIXME
+
+    lock_acquire(&cache->lock);
+
     struct cache_entry * cur = cache->head;
     struct cache_entry * prev;
 
     int feedback;
 
     while(cur){
+
+        if(cur->open == 1){
+            condition_wait(&cur->cond);
+        }
 
         if(cur->dirty == 1){
             feedback = storage_store(cache->backing, cur->pos, cur->block, CACHE_BLKSZ);
@@ -200,6 +220,11 @@ int cache_flush(struct cache* cache) {
         kfree(prev->block);
         kfree(prev);
     }
+
+
+    lock_acquire(&cache->lock);
+
+    kfree(&cache->lock);
 
     kfree(cache);
 
@@ -267,7 +292,7 @@ void init_linkedlist(struct cache* cache){
         cur->pos   = -1;
         cur->block = kmalloc(CACHE_BLKSZ);
         cur->open = 0;
-
+        condition_init(&cur->cond, "cache_block_open");
 
         prev = cur;
         cur = next;
@@ -281,6 +306,7 @@ void init_linkedlist(struct cache* cache){
     cur->pos   = -1;
     cur->block = kmalloc(CACHE_BLKSZ);
     cur->open = 0;
+    condition_init(&cur->cond, "cache_block_open");
 
     cache->tail = cur;
 
