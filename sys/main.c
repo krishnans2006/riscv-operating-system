@@ -19,6 +19,7 @@
 #include "thread.h"
 #include "timer.h"
 #include "elf.h"
+#include "uioimpl.h"
 
 #define INITEXE "trek"  // FIXME
 
@@ -112,7 +113,7 @@ void run_init(void) {
     struct uio* initexe;
     struct uio* console_uio;
     int result;
-    void (*eptr)(void) = NULL;
+    void (*entry)(struct uio *console) = NULL;
 
     result = open_file(CMNTNAME, INITEXE, &initexe);
 
@@ -125,7 +126,7 @@ void run_init(void) {
     //  Run your executable here
     //  Note that trek takes in a uio object to output to the console
 
-    result = elf_load(initexe, &eptr);
+    result = elf_load(initexe, (void*)&entry);
 
     if (result != 0) {
         kprintf("elf_load failed %s\n", error_name(result));
@@ -140,7 +141,8 @@ void run_init(void) {
         halt_failure();
     }
 
-    ((void (*)(struct uio*))eptr)(console_uio);
+
+    entry(console_uio);
 
     uio_close(console_uio);
 
