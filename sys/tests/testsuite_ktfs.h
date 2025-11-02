@@ -4,6 +4,7 @@
 // Add more test prototypes here
 // Add args if you want
 void run_testsuite_ktfs(const char* name);
-int test1(void);
+int test_open(void);
+int test_partial_read(void);
 
 #endif // _TESTSUITE_KTFS_H_
