@@ -248,6 +248,7 @@ void vioblk_attach(volatile struct virtio_mmio_regs* regs, int irqno) {
     condition_init(&vbd->used_ring_updated, "vbd.used_ring_updated");
     lock_init(&vbd->lock);
 
+
     virtio_attach_virtq(regs, 0, VIRTQ_LEN, (uint64_t) vbd->descriptors, (uint64_t) vbd->used, (uint64_t) vbd->avail);
 
     storage_init(&vbd->base, &vioblk_storage_intf, vbd->regs->config.blk.capacity*512);
@@ -309,7 +310,7 @@ static long vioblk_storage_fetch(struct storage* sto, unsigned long long pos, vo
         return 0;
     }
 
-    if( (pos + size * 512) <= vblk->base.capacity){
+    if( (pos + size * 512) > vblk->base.capacity){
         return -EINVAL;
     }
 
@@ -375,7 +376,7 @@ static long vioblk_storage_store(struct storage* sto, unsigned long long pos, co
         return 0;
     }
 
-    if( (pos + size * 512) <= vblk->base.capacity){
+    if( (pos + size * 512) > vblk->base.capacity){
         return -EINVAL;
     }
     
