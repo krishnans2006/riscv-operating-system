@@ -303,12 +303,15 @@ static long vioblk_storage_fetch(struct storage* sto, unsigned long long pos, vo
         return -EINVAL;
     }
 
-    if(bytecnt == 0){
+    uint64_t size = bytecnt / 512;
+    
+    if(size == 0){
         return 0;
     }
 
-
-    uint64_t size = bytecnt / 512;
+    if( (pos + size * 512) <= vblk->base.capacity){
+        return -EINVAL;
+    }
 
     struct virtio_blk_req_hdr * request = kcalloc(1, sizeof(struct virtio_blk_req_hdr));
 
@@ -366,12 +369,16 @@ static long vioblk_storage_store(struct storage* sto, unsigned long long pos, co
         return -EINVAL;
     }
 
-    if(bytecnt == 0){
+    uint64_t size = bytecnt / 512;
+
+    if(size == 0){
         return 0;
     }
 
-    uint64_t size = bytecnt / 512;
-
+    if( (pos + size * 512) <= vblk->base.capacity){
+        return -EINVAL;
+    }
+    
     struct virtio_blk_req_hdr * request = kcalloc(1, sizeof(struct virtio_blk_req_hdr));
 
     uint8_t *status = kcalloc(1, sizeof(uint8_t));
@@ -425,6 +432,7 @@ static int vioblk_storage_cntl(struct storage* sto, int op, void* arg) {
     if (!vblk->opened) {
         return -EINVAL;
     }
+
 
     if(op == FCNTL_GETEND){
        *(unsigned long long*)arg = vblk->base.capacity;
