@@ -1,8 +1,11 @@
 #include "testsuite_ktfs.h"
-#include "error.h"
 #include "console.h"
+#include "error.h"
 #include "filesys.h"
 #include "fsimpl.h"
+#include "misc.h"
+#include "uio.h"
+#include <string.h>
 
 void run_testsuite_ktfs(const char* name) {
     kprintf("Running ktfs tests...\n");
@@ -17,7 +20,7 @@ void run_testsuite_ktfs(const char* name) {
 }
 
 int test1() {
-    // Open root directory
+    // Open 'c:\hello' file
     struct uio* uio;
     int result = open_file("c", "hello", &uio);
     if (result != 0) {
@@ -29,11 +32,47 @@ int test1() {
     char buffer[64];
     long bytes_read = uio_read(uio, buffer, sizeof(buffer));
     if (bytes_read < 0) {
-        kprintf("uio_read failed: %s\n", error_name((int)-bytes_read));
+        kprintf("uio_read failed: %s\n", error_name(bytes_read));
         uio_close(uio);
-        return (int)bytes_read;
+        return -1;
     }
 
-    kprintf("Read %ld bytes: %.*s\n", bytes_read, (int)bytes_read, buffer);
+    // Print contents
+    for (long i = 0; i < bytes_read; i++) {
+        kprintf("%c", buffer[i]);
+    }
+    kprintf("\n");
+
+    // Make sure it's an ELF file
+    assert(strncmp(&buffer[1], "ELF", 3) == 0);
+
+    uio_close(uio);
+
+    // Open 'c:\trek' file
+    result = open_file("c", "trek", &uio);
+    if (result != 0) {
+        kprintf("open_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    // Read contents
+    bytes_read = uio_read(uio, buffer, sizeof(buffer));
+    if (bytes_read < 0) {
+        kprintf("uio_read failed: %s\n", error_name(bytes_read));
+        uio_close(uio);
+        return -1;
+    }
+
+    // Print contents
+    for (long i = 0; i < bytes_read; i++) {
+        kprintf("%c", buffer[i]);
+    }
+    kprintf("\n");
+
+    // Make sure it's an ELF file
+    assert(strncmp(&buffer[1], "ELF", 3) == 0);
+
+    uio_close(uio);
+    
     return 0;
 }
