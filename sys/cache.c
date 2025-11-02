@@ -72,11 +72,11 @@ int create_cache(struct storage* disk, struct cache** cptr) {
     c->backing = disk;
 
     //initiate cache data blocks.
-
-    init_linkedlist(c);
-
+    
     lock_init(&c->lock);
 
+    init_linkedlist(c);
+    
     *cptr = c;
     
     return 0;
@@ -99,6 +99,10 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
         return -EINVAL;
     }
 
+    if(cache == NULL){
+        return -EINVAL;
+    }
+
     lock_acquire(&cache->lock);
 
     struct cache_entry* hit = find_cache(cache, pos);
@@ -114,6 +118,7 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
         while(entry->open == 1){
 
             if(entry == cache->head){
+                lock_release(&cache->lock);
                 return -EBUSY;
             }
 
@@ -122,11 +127,17 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
 
         if(entry->dirty == 1){
             feedback = storage_store(cache->backing, entry->pos, entry->block, CACHE_BLKSZ);
-            if (feedback < 0) return feedback;
+            if (feedback < 0) {
+                lock_release(&cache->lock);
+                return feedback;
+            }
         }
 
         feedback = storage_fetch(cache->backing, pos, entry->block, CACHE_BLKSZ);
-        if (feedback < 0) return feedback;
+        if (feedback < 0){
+            lock_release(&cache->lock);
+            return feedback;
+        } 
 
         entry->dirty = 0;
         entry->pos = pos;
@@ -138,7 +149,7 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
         *pptr = cache->head->block;
     } else {
 
-        if(hit->open == 1){
+        while(hit->open == 1){
             condition_wait(&hit->cond);
         }
         *pptr = hit->block;
@@ -168,8 +179,9 @@ int cache_get_block(struct cache* cache, unsigned long long pos, void** pptr) {
  */
 void cache_release_block(struct cache* cache, void* pblk, int dirty) {
     // FIXME
-
-    
+    if(cache == NULL || pblk == NULL){
+        return ;
+    }
     
     struct cache_entry * cur = cache->head;
     while(cur){
@@ -196,6 +208,9 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
  */
 int cache_flush(struct cache* cache) {
     // FIXME
+    if(cache == NULL){
+        return -EINVAL;
+    }
 
     lock_acquire(&cache->lock);
 
@@ -206,13 +221,16 @@ int cache_flush(struct cache* cache) {
 
     while(cur){
 
-        if(cur->open == 1){
+        while(cur->open == 1){
             condition_wait(&cur->cond);
         }
 
         if(cur->dirty == 1){
             feedback = storage_store(cache->backing, cur->pos, cur->block, CACHE_BLKSZ);
-            if (feedback < 0) return feedback;
+            if (feedback < 0){
+                lock_release(&cache->lock);
+                return feedback;
+            } 
         }
         prev = cur;
         cur = cur->next;
@@ -222,9 +240,7 @@ int cache_flush(struct cache* cache) {
     }
 
 
-    lock_acquire(&cache->lock);
-
-    kfree(&cache->lock);
+    lock_release(&cache->lock);
 
     kfree(cache);
 
