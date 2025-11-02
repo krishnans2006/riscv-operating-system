@@ -245,7 +245,6 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
         if (result != 0) {
             return result;
         }
-        kprintf("Want: '%s', Found: '%s'\n", name, dentry->name);
         // Check if this is the file we want
         if (strcmp(dentry->name, name) == 0) {
             // Found the file, get its inode (for file size, etc.)
@@ -452,6 +451,7 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
         if (i == start_block_index && i == end_block_index) {
             // Both start and end block
             memcpy(buf, &data_block->data.data[start_block_offset_bytes], end_block_offset_bytes - start_block_offset_bytes + 1);
+            cache_release_block(ktfs->cache, (void*)data_block, 0);
             return 0;
         } else if (i == start_block_index) {
             // Start block only
@@ -461,7 +461,7 @@ static int ktfs_read_data(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsign
         } else if (i == end_block_index) {
             // End block only
             memcpy(&((uint8_t*)buf)[bytes_copied], &data_block->data.data[0], end_block_offset_bytes + 1);
-            bytes_copied += end_block_offset_bytes + 1;
+            cache_release_block(ktfs->cache, (void*)data_block, 0);
             return 0;
         } else {
             // Middle block
@@ -601,7 +601,7 @@ void ktfs_close(struct uio* uio) {
     struct ktfs_fs* ktfs = file->fs;
 
     remove_opened_file(&ktfs->opened_files, file);
-    // kfree(file);
+    kfree(file);
 }
 
 /**
