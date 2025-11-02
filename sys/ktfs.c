@@ -97,7 +97,7 @@ void ktfs_listing_close(struct uio* uio);
 long ktfs_listing_read(struct uio *uio, void *buf, unsigned long bufsz);
 
 static int get_root_inode(struct ktfs_fs* ktfs, struct ktfs_inode** root_inode_ptr, int* root_inode_num_ptr);
-static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* dentry, struct ktfs_inode** inode_ptr);
+static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* dentry, struct ktfs_inode* inode_copy);
 static int ktfs_open_listing(struct ktfs_fs *ktfs, struct uio **uioptr);
 static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** uioptr);
 static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inode, int n, struct ktfs_dir_entry** dentry_ptr);
@@ -160,7 +160,7 @@ static int get_root_inode(struct ktfs_fs* ktfs, struct ktfs_inode** root_inode_p
     return 0;
 }
 
-static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* dentry, struct ktfs_inode** inode_ptr) {
+static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* dentry, struct ktfs_inode* inode_copy) {
     // Read superblock
     struct ktfs_superblock_block* superblock;
     int result = cache_get_block_by_index(ktfs->cache, 0, (void **)&superblock);
@@ -182,7 +182,7 @@ static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* de
         return result;
     }
     
-    *inode_ptr = &inode_block->inodes[inode_offset_within_block];
+    *inode_copy = inode_block->inodes[inode_offset_within_block];
 
     cache_release_block(ktfs->cache, (void*)inode_block, 0);
 
@@ -248,7 +248,7 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
         // Check if this is the file we want
         if (strcmp(dentry->name, name) == 0) {
             // Found the file, get its inode (for file size, etc.)
-            struct ktfs_inode* file_inode;
+            struct ktfs_inode file_inode;
             result = get_inode_from_dentry(ktfs, dentry, &file_inode);
             if (result != 0) {
                 return result;
@@ -263,7 +263,7 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
             file->base.intf = &ktfs_file_uio_intf;
             file->dir_entry = *dentry;
             strncpy(file->dir_entry.name, name, KTFS_MAX_FILENAME_LEN);
-            file->size = file_inode->size;
+            file->size = file_inode.size;
             file->pos = 0;
             file->fs = ktfs;
 
@@ -622,13 +622,13 @@ long ktfs_fetch(struct uio* uio, void* buf, unsigned long len) {
     unsigned long start_byte = file->pos;
     unsigned long end_byte = file->pos + len - 1;
 
-    struct ktfs_inode* inode;
-    int result = get_inode_from_dentry(file->fs, &file->dir_entry, &inode);
+    struct ktfs_inode inode_copy;
+    int result = get_inode_from_dentry(file->fs, &file->dir_entry, &inode_copy);
     if (result != 0) {
         return result;
     }
 
-    result = ktfs_read_data(file->fs, inode, start_byte, end_byte, buf);
+    result = ktfs_read_data(file->fs, &inode_copy, start_byte, end_byte, buf);
     if (result != 0) {
         return result;
     }
