@@ -6,5 +6,6 @@
 void run_testsuite_ktfs(const char* name);
 int test_open(void);
 int test_partial_read(void);
+int test_many_small_reads(void);
 
 #endif // _TESTSUITE_KTFS_H_
