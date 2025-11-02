@@ -250,7 +250,7 @@ void vioblk_attach(volatile struct virtio_mmio_regs* regs, int irqno) {
 
     virtio_attach_virtq(regs, 0, VIRTQ_LEN, (uint64_t) vbd->descriptors, (uint64_t) vbd->used, (uint64_t) vbd->avail);
 
-    storage_init(&vbd->base, &vioblk_storage_intf, vbd->regs->config.blk.capacity);
+    storage_init(&vbd->base, &vioblk_storage_intf, vbd->regs->config.blk.capacity*512);
 
     regs->status |= VIRTIO_STAT_DRIVER_OK; //set the driver to OK
     // fence o,oi
