@@ -128,6 +128,7 @@ int elf_load(struct uio* uio, void (**eptr)(void)) {
     // FIXME
     struct elf64_ehdr ehdr;
     unsigned long long pos = 0;
+    if (uio == NULL) return -EINVAL;
     if (uio_cntl(uio, FCNTL_SETPOS, &pos) < 0) return -EIO;
     if (uio_read(uio, &ehdr, sizeof(ehdr)) != sizeof(ehdr)) return -EIO;
 
