@@ -215,7 +215,7 @@ int cache_flush(struct cache* cache) {
     lock_acquire(&cache->lock);
 
     struct cache_entry * cur = cache->head;
-    struct cache_entry * prev;
+    //struct cache_entry * prev;
 
     int feedback;
 
@@ -232,17 +232,17 @@ int cache_flush(struct cache* cache) {
                 return feedback;
             } 
         }
-        prev = cur;
+        //prev = cur;
         cur = cur->next;
 
-        kfree(prev->block);
-        kfree(prev);
+        //kfree(prev->block);
+        //kfree(prev);
     }
 
 
     lock_release(&cache->lock);
 
-    kfree(cache);
+    //kfree(cache);
 
     return 0;
 }
