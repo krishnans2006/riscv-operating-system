@@ -41,7 +41,7 @@
 #define GIGA_SIZE ((1UL << 9) * MEGA_SIZE)  // gigapage size
 
 #define PTE_ORDER 3
-#define PTE_CNT (1U << (PAGE_ORDER - PTE_ORDER))
+#define PTE_CNT (1U << (PAGE_ORDER - PTE_ORDER)) // 2^(12-3) = 2^9 = 512 page table entries/ table page
 
 #ifndef PAGING_MODE
 #define PAGING_MODE RISCV_SATP_MODE_Sv39
@@ -262,6 +262,9 @@ void memory_init(void) {
           (heap_end - heap_start) / 1024);
 
     // FIXME: Initialize the free chunk list here
+    free_chunk_list = (struct page_chunk *)heap_end;
+    free_chunk_list->next = NULL;
+    free_chunk_list->pagecnt = (uintptr_t)((char *)RAM_END - (char *)heap_end) / PAGE_SIZE;
 
     // Allow supervisor to access user memory. We could be more precise by only
     // enabling supervisor access to user memory when we are explicitly trying
@@ -285,17 +288,178 @@ mtag_t switch_mspace(mtag_t mtag) {
 
 mtag_t clone_active_mspace(void) {
     // FIXME
-    return (mtag_t)0;
+    struct pte * old_root_table = active_space_ptab();
+    struct pte * new_root_table = alloc_phys_page();
+    
+    // loop over and copy level 2 page table entries
+    for (size_t i = 0; i < PTE_CNT; i++) {
+        struct pte old_pte = old_root_table[i];
+
+        // (1) invalid pte
+        if (!PTE_VALID(old_pte)) {
+            new_root_table[i] = null_pte();
+            continue;
+        }
+        // (2) global pte, so share the same physical page numbers
+        if (old_pte.flags & PTE_G) {
+            new_root_table[i] = old_pte;
+            continue;
+        }
+        // (3) gigapage pte (non-global)
+        if (PTE_LEAF(old_pte)) {
+            // clone physical pages
+            void *old_page = pageptr(old_pte.ppn);
+            void *new_page = alloc_phys_pages(GIGA_SIZE/PAGE_SIZE);
+            memcpy(new_page, old_page, GIGA_SIZE);
+
+            // create new level 2 pte
+            new_root_table[i] = leaf_pte(new_page, old_pte.flags);
+            continue;
+        }
+       
+        // (4) level 1 page table (non-global)
+        struct pte* old_level1_table = (struct pte *)pageptr(old_pte.ppn);
+        struct pte* new_level1_table = alloc_phys_page();
+
+        // loop over and copy level 1 page table entries
+        for (size_t j = 0; j < PTE_CNT; j++) {
+            struct pte old_pte_l1 = old_level1_table[j];
+
+            // (a) invalid pte
+            if (!PTE_VALID(old_pte_l1)) {
+                new_level1_table[j] = null_pte();
+                continue;
+            }
+            // (b) global pte
+            if (old_pte_l1.flags & PTE_G) {
+                new_level1_table[j] = old_pte_l1;
+                continue;
+            }
+            // (c) megapage pte (non-global)
+            if (PTE_LEAF(old_pte_l1)) {
+                // clone physical pages
+                void *old_page = pageptr(old_pte_l1.ppn);
+                void *new_page = alloc_phys_pages(MEGA_SIZE/PAGE_SIZE);
+                memcpy(new_page, old_page, MEGA_SIZE);
+
+                // create new level 1 pte
+                new_level1_table[j] = leaf_pte(new_page, old_pte_l1.flags);
+                continue;
+            }
+
+            // (d) level 0 page table (non-global)
+            struct pte* old_level0_table = (struct pte *)pageptr(old_pte_l1.ppn);
+            struct pte* new_level0_table = alloc_phys_page();
+
+            // loop over and copy level 0 page table entries
+            for (size_t k = 0; k < PTE_CNT; k++) {
+                struct pte old_pte_l0 = old_level0_table[k];
+
+                // (i) invalid pte
+                if (!PTE_VALID(old_pte_l0)) {
+                    new_level0_table[k] = null_pte();
+                    continue;
+                }
+                // (ii) global pte
+                if (old_pte_l0.flags & PTE_G) {
+                    new_level0_table[k] = old_pte_l0;
+                    continue;
+                }
+                // (iii) page (non-global)
+                void *old_page = pageptr(old_pte_l0.ppn);
+                void *new_page = alloc_phys_page();
+                memcpy(new_page, old_page, PAGE_SIZE);
+
+                new_level0_table[k] = leaf_pte(new_page, old_pte_l0.flags);
+            }
+
+            new_level1_table[j] = ptab_pte(new_level0_table, old_pte_l1.flags & PTE_G);
+        }
+
+        new_root_table[i] = ptab_pte(new_level1_table, old_pte.flags & PTE_G);
+    }
+
+    return ptab_to_mtag(new_root_table, 0);
 }
 
 void reset_active_mspace(void) {
     // FIXME
+    struct pte * root_table = active_space_ptab();
+    size_t vpn = VPN2(0xC000'0000); // = 3
+    struct pte root_pte = root_table[vpn]; // get the pte that coresponds to the pages in the user range
+
+    if (!PTE_VALID(root_pte)) return;
+    
+    // It's a gigapage
+    if (PTE_LEAF(root_pte)) { 
+        if (root_pte.flags & PTE_U) {
+            void * pp = pageptr(root_pte.ppn);
+            free_phys_pages(pp, GIGA_SIZE/PAGE_SIZE);
+            root_table[vpn] = null_pte();
+        }
+        sfence_vma();
+        return;
+    } 
+
+    // Get the level 1 table corresponding to the user space
+    struct pte* level1_table = (struct pte *)pageptr(root_pte.ppn);
+    // Umap and free the user space
+    for (size_t i = 0; i < PTE_CNT; i++) {
+        struct pte level1_pte = level1_table[i];
+
+        // (1) skip invalid
+        if (!PTE_VALID(level1_pte)) continue;
+
+        // (2) megapage entry
+        if (PTE_LEAF(level1_pte)) {
+            if (level1_pte.flags & PTE_U) {
+                void * pp = pageptr(level1_pte.ppn);
+                free_phys_pages(pp, MEGA_SIZE/PAGE_SIZE);
+                level1_table[i] = null_pte();
+            }
+            continue;
+        } 
+        // (3) not a megapage entry, walk through the level 0 table
+        struct pte* level0_table = (struct pte *)pageptr(level1_pte.ppn);
+        for (size_t j = 0; j < PTE_CNT; j++) {
+            struct pte level0_pte = level0_table[j];
+
+            // skip invalid
+            if (!PTE_VALID(level0_pte)) continue;
+
+            if (level0_pte.flags & PTE_U) {
+                void * pp = pageptr(level0_pte.ppn);
+                free_phys_page(pp);
+                level0_table[j] = null_pte();
+            }       
+        }
+        // assume that all level 0 pte are actually user-accessible and were freed and nullified,
+        // so free the level 0 table and nullify the level 1 pte
+        free_phys_page(level0_table);
+        level1_table[i] = null_pte();
+    }
+
+    // assume that all level 1 pte are actually user-accessible and were freed and nullified
+    // so free the level 1 table and nullify the level 2 pte
+    free_phys_page(level1_table);
+    root_table[vpn] = null_pte();
+
+    sfence_vma();
     return;
 }
 
 mtag_t discard_active_mspace(void) {
     // FIXME
-    return (mtag_t)0;
+
+    // unmap and free all non-global pages
+    struct pte * root_table = active_space_ptab();
+    reset_active_mspace();
+
+    // switch memory space to main
+    mtag_t prev = switch_mspace(main_mtag);
+    free_phys_page(root_table);
+
+    return main_mtag;
 }
 
 // The map_page() function maps a single page into the active address space at
@@ -308,68 +472,388 @@ mtag_t discard_active_mspace(void) {
 // We currently map 4K pages only. At some point it may be disirable to support
 // mapping megapages and gigapages.
 
+static void ptab_insert(struct pte *ptab,   // page table to modify
+    unsigned long vpn,  // virtual page number to insert
+    void *pp,           // pointer to physical page to insert
+    int rwxug_flags     // flags for inserted mapping
+) {
+    size_t vpn2 = PT_INDEX(2, vpn);
+    size_t vpn1 = PT_INDEX(1, vpn);
+    size_t vpn0 = PT_INDEX(0, vpn);
+
+    // (1) go to level 1 page table
+
+    // create the table if it hasn't been created yet
+    if (!PTE_VALID(ptab[vpn2])) {
+        struct pte *level1_table = alloc_phys_page();
+        // initialize table entries to 0
+        for (size_t i = 0; i < PTE_CNT; i++) {
+            level1_table[i] = null_pte();
+        }
+        ptab[vpn2] = ptab_pte(level1_table, 0);
+    } else if (PTE_LEAF(ptab[vpn2])) panic("ptab_insert: vpn2 entry is a gigapage");
+
+    struct pte *level1_table = (struct pte *)pageptr(ptab[vpn2].ppn);
+
+    // (2) go to level 0 page table
+
+    // create the table if it hasn't been created yet
+    if (!PTE_VALID(level1_table[vpn1])) {
+        struct pte *level0_table = alloc_phys_page();
+        for (size_t i = 0; i < PTE_CNT; i++) {
+            level0_table[i] = null_pte();
+        }
+        level1_table[vpn1] = ptab_pte(level0_table, 0);
+    } else if (PTE_LEAF(level1_table[vpn1])) panic("ptab_insert: vpn1 entry is a megapage");
+    
+    struct pte *level0_table = (struct pte *)pageptr(level1_table[vpn1].ppn);
+
+    // (3) map page
+    level0_table[vpn0] = leaf_pte(pp, rwxug_flags);
+
+}
+
+/*
+    inputs: ptab        - root page table of the memory space
+            vpn         - virtual page number
+            rwxug_flags - page table entry flags
+    description: modifies the page table entry corresponding to the vpn in the ptab so that they are rwxug_flags
+*/
+static void ptab_adjust(struct pte *ptab, unsigned long vpn, int rwxug_flags) {
+    size_t vpn2 = PT_INDEX(2, vpn);
+    size_t vpn1 = PT_INDEX(1, vpn);
+    size_t vpn0 = PT_INDEX(0, vpn);
+
+    // (1) go to level 1 page table
+    if (!PTE_VALID(ptab[vpn2])) panic("ptab_adjust: vpn2 entry is invalid");
+    else if (PTE_LEAF(ptab[vpn2])) panic("ptab_adjust: vpn2 entry is a gigapage");
+
+    struct pte *level1_table = (struct pte *)pageptr(ptab[vpn2].ppn);
+
+    // (2) go to level 0 page table
+    if (!PTE_VALID(level1_table[vpn1])) panic("ptab_adjust: vpn1 entry is invalid");
+    else if (PTE_LEAF(level1_table[vpn1])) panic("ptab_adjust: vpn1 entry is a megapage");
+
+    struct pte *level0_table = (struct pte *)pageptr(level1_table[vpn1].ppn);
+
+    // (3) adjust flags of entry
+    if (!PTE_VALID(level0_table[vpn0])) panic("ptab_adjust: vpn0 entry is invalid");
+    level0_table[vpn0].flags = rwxug_flags;
+}
+/*
+    inputs: ptab        - root page table of the memory space
+            vpn         - virtual page number
+    output: pointer to the physical page so that it can be freed by the caller
+    description: unmaps the physical page corresponding to vpn in ptab
+*/
+static void *ptab_remove(struct pte *ptab, unsigned long vpn) {
+    size_t vpn2 = PT_INDEX(2, vpn);
+    size_t vpn1 = PT_INDEX(1, vpn);
+    size_t vpn0 = PT_INDEX(0, vpn);
+
+    // (1) go to level 1 page table
+    if (!PTE_VALID(ptab[vpn2])) return NULL;
+    else if (PTE_LEAF(ptab[vpn2])) panic("ptab_remove: vpn2 entry is a gigapage");
+
+    struct pte *level1_table = (struct pte *)pageptr(ptab[vpn2].ppn);
+
+    // (2) go to level 0 page table
+    if (!PTE_VALID(level1_table[vpn1])) return NULL;
+    else if (PTE_LEAF(level1_table[vpn1])) panic("ptab_remove: vpn1 entry is a megapage");
+
+    struct pte *level0_table = (struct pte *)pageptr(level1_table[vpn1].ppn);
+
+    // (3) umap the physical page and return
+    if (!PTE_VALID(level0_table[vpn0])) return NULL;
+    
+    void *pp = pageptr(level0_table[vpn0].ppn);
+
+    level0_table[vpn0] = null_pte();
+
+    return pp;
+}
+
+/*
+    inputs: ptab        - root page table of the memory space
+            vpn         - virtual page number
+    output: pointer to the page table entry that corresponds to the vpn in ptab
+*/
+struct pte *ptab_fetch(struct pte *ptab, unsigned long vpn) {
+    size_t vpn2 = PT_INDEX(2, vpn);
+    size_t vpn1 = PT_INDEX(1, vpn);
+    size_t vpn0 = PT_INDEX(0, vpn);
+
+    // (1) go to level 1 page table
+    if (!PTE_VALID(ptab[vpn2])) return NULL;
+    else if (PTE_LEAF(ptab[vpn2])) return &ptab[vpn2]; // gigapage
+
+    struct pte *level1_table = (struct pte *)pageptr(ptab[vpn2].ppn);
+
+    // (2) go to level 0 page table
+    if (!PTE_VALID(level1_table[vpn1])) return NULL;
+    else if (PTE_LEAF(level1_table[vpn1])) return &level1_table[vpn1]; // megapage
+
+    struct pte *level0_table = (struct pte *)pageptr(level1_table[vpn1].ppn);
+
+    // (3) return the page table entry
+    if (!PTE_VALID(level0_table[vpn0])) return NULL;
+
+    return &level0_table[vpn0];
+}
+
+
 void *map_page(uintptr_t vma, void *pp, int rwxug_flags) {
     // FIXME
-    return NULL;
+    if (vma % PAGE_SIZE != 0) panic("map_page: vma is not page-aligned");
+    if ((uintptr_t)pp % PAGE_SIZE != 0) panic("map_page: pp is not page-aligned");
+    if (!wellformed(vma)) panic("map_page: vma is not well-formed");
+
+    void* vp = map_range(vma, PAGE_SIZE, pp, rwxug_flags);
+
+    return (void*)vma;
 }
 
 void *map_range(uintptr_t vma, size_t size, void *pp, int rwxug_flags) {
     // FIXME
-    return NULL;
+    if (vma % PAGE_SIZE != 0) panic("map_range: vma is not page-aligned");
+    if ((uintptr_t)pp % PAGE_SIZE != 0) panic("map_range: pp is not page-aligned");
+    if (!wellformed(vma)) panic("map_range: vma is not well-formed");
+
+    // round up size to be a multiple of PAGE_SIZE
+    size = ROUND_UP(size, PAGE_SIZE);
+    
+    struct pte *root_table = active_space_ptab();
+
+    for (size_t i = 0; i < size / PAGE_SIZE; i ++) {
+        ptab_insert(root_table, VPN(vma) + i, (void*)((uintptr_t)pp + PAGE_SIZE * i), rwxug_flags);
+    }
+    sfence_vma();
+
+    return (void*)vma;
 }
 
 void *alloc_and_map_range(uintptr_t vma, size_t size, int rwxug_flags) {
     // FIXME
-    return NULL;
+
+    // round up size to be a multiple of PAGE_SIZE
+    size = ROUND_UP(size, PAGE_SIZE);
+
+    // allocate physical pages
+    void * pp = alloc_phys_pages(size / PAGE_SIZE);
+    void * vp = map_range(vma, size, pp, rwxug_flags);
+
+    return vp;
 }
 
 void set_range_flags(const void *vp, size_t size, int rwxug_flags) {
     // FIXME
+    uintptr_t vma = (uintptr_t) vp;
+    if (vma % PAGE_SIZE != 0) panic("set_range_flags: vp is not page-aligned");
+    if (!wellformed(vma)) panic("set_range_flags: vp is not well-formed");
+
+    // round up size to be a multiple of PAGE_SIZE
+    size = ROUND_UP(size, PAGE_SIZE);
+
+    struct pte *root_table = active_space_ptab();
+
+    for (size_t i = 0; i < size / PAGE_SIZE; i ++) {
+        ptab_adjust(root_table, VPN(vma) + i, rwxug_flags);
+    }
+    sfence_vma();
+
     return;
 }
 
 void unmap_and_free_range(void *vp, size_t size) {
     // FIXME
+    uintptr_t vma = (uintptr_t) vp;
+    if (vma % PAGE_SIZE != 0) panic("unmap_and_free_range: vp is not page-aligned");
+    if (!wellformed(vma)) panic("unmap_and_free_range: vp is not well-formed");
+
+    // round up size to be a multiple of PAGE_SIZE
+    size = ROUND_UP(size, PAGE_SIZE);
+
+    struct pte *root_table = active_space_ptab();
+
+    for (size_t i = 0; i < size / PAGE_SIZE; i ++) {
+        void* pp = ptab_remove(root_table, VPN(vma) + i);
+        if (pp != NULL) {
+            free_phys_page(pp);
+        }
+    }
+    sfence_vma();
+
     return;
 }
 
 int validate_vptr(const void *vp, size_t len, int rwxug_flags) {
     // FIXME
+
+    // validate virtual memory address
+    uintptr_t vma = (uintptr_t) vp;
+    if (vma % PAGE_SIZE != 0) return -EINVAL;
+    if (!wellformed(vma)) return -EINVAL;
+
+    // len does not wrap around to zero
+    if (vma + len < vma) return -EINVAL;
+
+    // round up len to be a multiple of PAGE_SIZE
+    size = ROUND_UP(len, PAGE_SIZE);
+
+    // iterates over pages in range
+    struct pte *root_table = active_space_ptab();
+
+    for (size_t i = 0; i < size / PAGE_SIZE; i ++) {
+        struct pte * pte = ptab_fetch(root_table, VPN(vma) + i);
+
+        // check if pages are mapped
+        if (pte == NULL || !PTE_VALID(*pte)) return -ENOENT;
+
+        // check if pages have flags set correctly
+        if ((pte->flags & rwxug_flags) != rwxug_flags) return -EACCESS;
+    }
+
     return 0;
 }
 
 int validate_vstr(const char *vs, int rug_flags) {
     // FIXME
+
+    // validate virtual memory address
+    uintptr_t vma = (uintptr_t) vs;
+    if (!wellformed(vma)) return -EINVAL;
+
+    // initialize values
+    struct pte *root_table = active_space_ptab();
+    uintptr_t current_page = VPN(vma)
+    struct pte *current_pte = ptab_fetch(root_table, VPN(char_addr));
+
+    if (current_pte == NULL || !PTE_VALID(*current_pte)) return -ENOENT;
+    if ((current_pte->flags & ug_flags) != ug_flags) return -EACCESS;
+
+    // loop through char
+    for (size_t i = 0; true; i++) {
+        uintptr_t char_addr = vma + i;
+        uintptr_t char_page = VPN(char_addr);
+
+        // haven't gotten page yet
+        if (current_pte == NULL) {
+            current_pte = ptab_fetch(root_table, VPN(char_addr));
+
+            if (current_pte == NULL || !PTE_VALID(*current_pte)) return -ENOENT;
+            if ((current_pte->flags & ug_flags) != ug_flags) return -EACCESS;
+        // string spans multiple pages
+        } else if (current_page != char_page) {
+            current_pte = ptab_fetch(root_table, VPN(char_addr));
+            current_page = char_page;
+
+            if (current_pte == NULL || !PTE_VALID(*current_pte)) return -ENOENT;
+            if ((current_pte->flags & ug_flags) != ug_flags) return -EACCESS;
+        }
+
+        // access and check char
+        char c = vs[i];
+        if (c == NULL) {
+            return 0;
+        }
+    }
+
+
     return 0;
 }
 
 void *alloc_phys_page(void) {
     // FIXME
-    return NULL;
+    return alloc_phys_pages(1);
 }
 
 void free_phys_page(void *pp) {
     // FIXME
-    return;
+    free_phys_pages(pp, 1);
 }
 
 void *alloc_phys_pages(unsigned int cnt) {
     // FIXME
-    return NULL;
+    if (cnt == 0) return NULL;
+
+    // initialize at the start of the chunk list
+    struct page_chunk * curr = free_chunk_list;
+    struct page_chunk * best = NULL;
+    struct page_chunk ** prevs_next = &free_chunk_list;
+    struct page_chunk ** best_prev = NULL;
+    unsigned long best_pagecnt = 0;
+
+    while (!(curr == NULL)) {
+        // fits and is better, best_pagecnt == 0 means there's been no valid chunks yet
+        if (curr->pagecnt >= cnt && (best_pagecnt == 0 || curr->pagecnt < best_pagecnt)) {
+            best_pagecnt = curr->pagecnt;
+            best = curr;
+            best_prev = prevs_next;
+
+            if (best_pagecnt == cnt) break;
+        }
+        prevs_next = &curr->next;
+        curr = curr->next;
+    }
+
+    // no chunk found
+    if (best == NULL) panic("alloc_phys_pages: out of memory");
+
+    // perfectly matching chunk size
+    if (best_pagecnt == cnt) {
+        *best_prev = best->next;
+    } else {
+    // non-perfectly matching chunk size
+        struct page_chunk * left_over = (struct page_chunk*)((char*)best + cnt * PAGE_SIZE);
+        left_over->next = best->next;
+        left_over->pagecnt = best->pagecnt - cnt;
+        *best_prev = left_over;
+    }
+
+    return (void*)best;
 }
 
 void free_phys_pages(void *pp, unsigned int cnt) {
     // FIXME
-    return;
+    if ((uintptr_t)pp % PAGE_SIZE != 0) panic("free_phys_pages: pp is not page-aligned");
+    if (cnt == 0) return;
+
+    struct page_chunk * to_free = (struct page_chunk*)pp;
+    to_free->pagecnt = cnt;
+
+    // initialize at the start of the chunk list
+    struct page_chunk * curr = free_chunk_list;
+    struct page_chunk ** prevs_next = &free_chunk_list;
+
+    // iterate until curr is the free chunk that should be after the chunk we're freeing
+    while (curr < to_free && curr != NULL) {
+        prevs_next = &curr->next;
+        curr = curr->next;
+    }
+
+    to_free->next = curr;
+
+    *prevs_next = to_free;
 }
 
 unsigned long free_phys_page_count(void) {
     // FIXME
-    return 0;
+    struct page_chunk * chunk = free_chunk_list;
+    unsigned long num_free_pages = 0;
+    while (!(chunk == NULL)) {
+        num_free_pages += chunk->pagecnt;
+        chunk = chunk->next;
+    }
+    return num_free_pages;
 }
 
 int handle_umode_page_fault(struct trap_frame *tfr, uintptr_t vma) {
     // FIXME
+    if (UMEM_START_VMA <= vma && vma < UMEM_END_VMA) {
+        void * pp = alloc_phys_page();
+        map_range(VPN(vma), PAGE_SIZE, pp, PTE_W | PTE_R | PTE_U);
+        return 1;
+    }
     return 0;  // no handled
 }
 
