@@ -47,6 +47,7 @@ void main(void) {
     devmgr_init();
     thrmgr_init();
     memory_init(); // initialize virtual memory
+    procmgr_init(); // initialize process manager
 
     attach_devices();
 
