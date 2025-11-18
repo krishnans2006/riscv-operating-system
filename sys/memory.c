@@ -118,7 +118,7 @@ struct pte {
     (((vpn) & (0x1FF << (lvl * (PAGE_ORDER - PTE_ORDER)))) >> (lvl * (PAGE_ORDER - PTE_ORDER)))
 // INTERNAL FUNCTION DECLARATIONS
 //
-
+/* UNUSED
 static void ptab_reset(struct pte *ptab  // page table to reset
 );
 
@@ -127,7 +127,7 @@ static struct pte *ptab_clone(struct pte *ptab  // page table to clone
 
 static void ptab_discard(struct pte *ptab  // page table to discard
 );
-
+*/
 static void ptab_insert(struct pte *ptab,   // page table to modify
                         unsigned long vpn,  // virtual page number to insert
                         void *pp,           // pointer to physical page to insert
@@ -385,7 +385,7 @@ mtag_t clone_active_mspace(void) {
 void reset_active_mspace(void) {
     // FIXME
     struct pte * root_table = active_space_ptab();
-    size_t vpn = VPN2(0xC000'0000); // = 3
+    size_t vpn = VPN2(0xC0000000); // = 3
     struct pte root_pte = root_table[vpn]; // get the pte that coresponds to the pages in the user range
 
     if (!PTE_VALID(root_pte)) return;
@@ -456,7 +456,7 @@ mtag_t discard_active_mspace(void) {
     reset_active_mspace();
 
     // switch memory space to main
-    mtag_t prev = switch_mspace(main_mtag);
+    switch_mspace(main_mtag);
     free_phys_page(root_table);
 
     return main_mtag;
@@ -608,7 +608,7 @@ void *map_page(uintptr_t vma, void *pp, int rwxug_flags) {
     if ((uintptr_t)pp % PAGE_SIZE != 0) panic("map_page: pp is not page-aligned");
     if (!wellformed(vma)) panic("map_page: vma is not well-formed");
 
-    void* vp = map_range(vma, PAGE_SIZE, pp, rwxug_flags);
+    map_range(vma, PAGE_SIZE, pp, rwxug_flags);
 
     return (void*)vma;
 }
@@ -698,7 +698,7 @@ int validate_vptr(const void *vp, size_t len, int rwxug_flags) {
     if (vma + len < vma) return -EINVAL;
 
     // round up len to be a multiple of PAGE_SIZE
-    size = ROUND_UP(len, PAGE_SIZE);
+    size_t size = ROUND_UP(len, PAGE_SIZE);
 
     // iterates over pages in range
     struct pte *root_table = active_space_ptab();
@@ -716,7 +716,7 @@ int validate_vptr(const void *vp, size_t len, int rwxug_flags) {
     return 0;
 }
 
-int validate_vstr(const char *vs, int rug_flags) {
+int validate_vstr(const char *vs, int ug_flags) {
     // FIXME
 
     // validate virtual memory address
@@ -725,25 +725,21 @@ int validate_vstr(const char *vs, int rug_flags) {
 
     // initialize values
     struct pte *root_table = active_space_ptab();
-    uintptr_t current_page = VPN(vma)
-    struct pte *current_pte = ptab_fetch(root_table, VPN(char_addr));
+    uintptr_t current_page = VPN(vma);
+
+    // get and check the first page
+    struct pte *current_pte = ptab_fetch(root_table, current_page);
 
     if (current_pte == NULL || !PTE_VALID(*current_pte)) return -ENOENT;
     if ((current_pte->flags & ug_flags) != ug_flags) return -EACCESS;
 
     // loop through char
-    for (size_t i = 0; true; i++) {
+    for (size_t i = 0; 1; i++) {
         uintptr_t char_addr = vma + i;
         uintptr_t char_page = VPN(char_addr);
 
-        // haven't gotten page yet
-        if (current_pte == NULL) {
-            current_pte = ptab_fetch(root_table, VPN(char_addr));
-
-            if (current_pte == NULL || !PTE_VALID(*current_pte)) return -ENOENT;
-            if ((current_pte->flags & ug_flags) != ug_flags) return -EACCESS;
         // string spans multiple pages
-        } else if (current_page != char_page) {
+        if (current_page != char_page) {
             current_pte = ptab_fetch(root_table, VPN(char_addr));
             current_page = char_page;
 
@@ -753,7 +749,7 @@ int validate_vstr(const char *vs, int rug_flags) {
 
         // access and check char
         char c = vs[i];
-        if (c == NULL) {
+        if (c == '\0') {
             return 0;
         }
     }
@@ -849,9 +845,15 @@ unsigned long free_phys_page_count(void) {
 
 int handle_umode_page_fault(struct trap_frame *tfr, uintptr_t vma) {
     // FIXME
+    if (!wellformed(vma)) panic("handle_umode_page_fault: vma is not well-formed");
+
     if (UMEM_START_VMA <= vma && vma < UMEM_END_VMA) {
         void * pp = alloc_phys_page();
-        map_range(VPN(vma), PAGE_SIZE, pp, PTE_W | PTE_R | PTE_U);
+
+        uintptr_t aligned_vma = (VPN(vma)) << PAGE_ORDER;
+
+        map_range(aligned_vma, PAGE_SIZE, pp, PTE_W | PTE_R | PTE_U);
+        memset(pp, 0, PAGE_SIZE);
         return 1;
     }
     return 0;  // no handled

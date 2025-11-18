@@ -46,7 +46,7 @@ void main(void) {
     intrmgr_init();
     devmgr_init();
     thrmgr_init();
-    heap_init(_kimg_end, RAM_END);
+    memory_init(); // initialize virtual memory
 
     attach_devices();
 
