@@ -75,7 +75,7 @@ void handle_syscall(struct trap_frame *tfr) {
 
     tfr->sepc += 4; // continue from next instruction
     // Execute syscall
-     tfr->a0 = syscall(tfr);
+    tfr->a0 = syscall(tfr);
 }
 
 // INTERNAL FUNCTION DEFINITIONS
@@ -212,7 +212,11 @@ int sysexec(int fd, int argc, char **argv) {
         return -EBADFD;
     }
 
-    return process_exec(current_process()->uiotab[fd], argc, argv);
+    int result = process_exec(current_process()->uiotab[fd], argc, argv);
+
+    uio_close(current_process()->uiotab[fd]);
+
+    return result;
  }
 
 /**
@@ -257,6 +261,7 @@ int sysprint(const char *msg) {
 
     if (result != 0)
         return result;
+
     kprintf("Thread <%s:%d> says: %s\n", thread_name(running_thread()), running_thread(), msg);
     return 0;
 
@@ -272,7 +277,14 @@ int sysprint(const char *msg) {
  */
 
 int sysusleep(unsigned long us) { 
+    if(us < 0) return -EINVAL;
 
+    struct alarm alarm;
+    alarm_init(&alarm, "usleep");
+
+    alarm_sleep(&alarm, us);
+
+    return 0;
 
 }
 
@@ -374,7 +386,7 @@ int sysopen(int fd, const char *path) {
     if (fd < 0) {
         uio_close(u);
         kfree(kpath);
-        return -EINVAL ;  
+        return -EINVAL;  
     } else {
         if (fd >= PROCESS_UIOMAX) {
             uio_close(u);
@@ -402,7 +414,15 @@ int sysopen(int fd, const char *path) {
  * @return 0 on success, error on invalid file descriptor or empty file descriptor
  */
 
-int sysclose(int fd) { return 0; }
+int sysclose(int fd) { 
+    struct process *proc = current_process();
+    
+    if(proc->uiotab[fd] != NULL){
+        uio_close(proc->uiotab[fd]);
+    } else {
+        return -EINVAL;
+    }
+}
 
 /**
  * @brief Calls read function of file io on given buffer
@@ -414,7 +434,17 @@ int sysclose(int fd) { return 0; }
  * @return number of bytes read
  */
 
-long sysread(int fd, void *buf, size_t bufsz) { return 0; }
+long sysread(int fd, void *buf, size_t bufsz) { 
+    struct process *proc = current_process();
+
+    if(proc->uiotab[fd] != NULL){
+        int result = uio_read(proc->uiotab[fd], buf, bufsz);
+        return result;
+    } else {
+        return -EINVAL;
+    }
+
+}
 
 /**
  * @brief Calls write function of file io on given buffer
@@ -426,7 +456,17 @@ long sysread(int fd, void *buf, size_t bufsz) { return 0; }
  * @return number of bytes written
  */
 
-long syswrite(int fd, const void *buf, size_t len) { return 0; }
+long syswrite(int fd, const void *buf, size_t len) { 
+    struct process *proc = current_process();
+
+    if(proc->uiotab[fd] != NULL){
+        int result = uio_write(proc->uiotab[fd], buf, len);
+        return result;
+    } else {
+        return -EINVAL;
+    }
+
+}
 
 /**
  * @brief Calls device input output commands for a given device instance
@@ -438,7 +478,17 @@ long syswrite(int fd, const void *buf, size_t len) { return 0; }
  * @return number of bytes written
  */
 
-int sysfcntl(int fd, int cmd, void *arg) { return 0; }
+int sysfcntl(int fd, int cmd, void *arg) { 
+    struct process *proc = current_process();
+
+    if(proc->uiotab[fd] != NULL){
+        int result = uio_cntl(proc->uiotab[fd], cmd, arg);
+        return result;
+    } else {
+        return -EINVAL;
+    }
+
+ }
 
 /**
  * @brief Creates a pipe for the current process
@@ -450,7 +500,44 @@ int sysfcntl(int fd, int cmd, void *arg) { return 0; }
  * @return 0 on success. Else, negative error code on invalid file descriptor, or if a file
  * descriptor is already in use, or if no descriptors are found available.
  */
-int syspipe(int *wfdptr, int *rfdptr) { return 0; }
+int syspipe(int *wfdptr, int *rfdptr) {
+
+    /*
+    struct process *proc = current_process();
+
+    struct uio *wptr = (struct uio*)wfdptr;
+    struct uio *rptr = (struct uio*)rfdptr;
+
+    int i;
+
+    for ( i = 0; i < PROCESS_UIOMAX; i++) {
+        if (proc->uiotab[i] == wptr || proc->uiotab[i] == rptr) {
+                
+            return -EINVAL;
+        }
+    }
+
+    if( wfdptr < 0 ){
+        for ( i = 0; i < PROCESS_UIOMAX; i++) {
+            if (proc->uiotab[i] == NULL) {
+                wptr = proc->uiotab[i];
+            }
+        }
+    } else if( rfdptr < 0 ){
+        for ( i = 0; i < PROCESS_UIOMAX; i++) {
+            if (proc->uiotab[i] == NULL) {
+                rptr = proc->uiotab[i];
+            }
+        }
+    }
+
+    create_pipe(&wptr, &rptr);
+    */
+
+    return 0;
+    
+
+}
 
 /**
  * @brief Duplicates a file description
@@ -462,4 +549,30 @@ int syspipe(int *wfdptr, int *rfdptr) { return 0; }
  * descriptor
  */
 
-int sysuiodup(int oldfd, int newfd) { return 0; }
+int sysuiodup(int oldfd, int newfd) { 
+    struct process *proc = current_process();
+
+    if(newfd < 0){
+        for ( int i = 0; i < PROCESS_UIOMAX; i++) {
+            if (proc->uiotab[i] == NULL) {
+                proc->uiotab[i] = proc->uiotab[oldfd];
+
+                uio_addref(proc->uiotab[oldfd]);
+
+                return i;
+            }
+        }
+        return -EMFILE;
+    } else {
+        if(proc->uiotab[newfd] == NULL){
+            proc->uiotab[newfd] = proc->uiotab[oldfd];
+
+            uio_addref(proc->uiotab[oldfd]);
+
+            return newfd;
+        }
+        return -EINVAL;
+    }
+
+    
+ }

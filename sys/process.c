@@ -87,8 +87,7 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
 
     sfence_vma();
 
-    int rc = validate_vptr(argv, (size_t)(argc + 1) * sizeof(char *),
-                       PTE_U | PTE_R);
+    int rc = validate_vptr(argv, (size_t)(argc + 1) * sizeof(char *), PTE_U | PTE_R);
 
     for (int i = 0; i < argc; i++) {
         rc = validate_vstr(argv[i], PTE_U | PTE_R);
@@ -117,8 +116,7 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
 
     uintptr_t user_stack_vma = UMEM_END_VMA - PAGE_SIZE;
 
-    (void)map_page(user_stack_vma, stack_page,
-                   PTE_R | PTE_W | PTE_U);
+    map_page(user_stack_vma, stack_page, PTE_R | PTE_W | PTE_U);
 
     uintptr_t usp = UMEM_END_VMA - (uintptr_t)stksz;
 
@@ -133,9 +131,9 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
     tfr.sepc = (void *)entry;
 
     uintptr_t sstatus = csrr_sstatus();
-    sstatus &= ~RISCV_SSTATUS_SPP;    // SPP = 0 (user)
-    sstatus &= ~RISCV_SSTATUS_SIE;    // SIE = 0 in S-mode
-    sstatus |= RISCV_SSTATUS_SPIE;    // SPIE = 1 (U-mode SIE <- 1 on sret)
+    sstatus &= ~RISCV_SSTATUS_SPP;    // SPP = 0 
+    sstatus &= ~RISCV_SSTATUS_SIE;    // SIE = 0 
+    sstatus |= RISCV_SSTATUS_SPIE;    // SPIE = 1 
     tfr.sstatus = (long)sstatus;
 
 
