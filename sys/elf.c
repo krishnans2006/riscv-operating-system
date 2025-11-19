@@ -151,19 +151,33 @@ int elf_load(struct uio* uio, void (**eptr)(void)) {
 
         // the file size may not be larger than the memory size
         if (phdr.p_filesz > phdr.p_memsz) return -ENOMEM;
-        // ensure loaded segments are mapped within the memory range `0x80100000` to `0x81000000`
-        if (!(phdr.p_vaddr >= 0x80100000 && phdr.p_vaddr < 0x81000000 && (phdr.p_vaddr + phdr.p_memsz) >= 0x80100000 && (phdr.p_vaddr + phdr.p_memsz) < 0x81000000)) return -EINVAL;
+        // ensure loaded segments are mapped within the user memory range
+        if (!(phdr.p_vaddr >= UMEM_START_VMA && phdr.p_vaddr < UMEM_END_VMA && (phdr.p_vaddr + phdr.p_memsz) >= UMEM_START_VMA && (phdr.p_vaddr + phdr.p_memsz) < UMEM_END_VMA)) return -EINVAL;
+
+        // allocate and map virtual memory first
+        uintptr_t aligned_vma = ((phdr.p_vaddr) / PAGE_SIZE) << PAGE_ORDER;
+        size_t size = ROUND_UP(phdr.p_vaddr + phdr.p_memsz, PAGE_SIZE) - aligned_vma;
+        alloc_and_map_range(aligned_vma, size, PTE_R | PTE_W | PTE_U);
 
         // load file segment into memory
         uint64_t segment_location = phdr.p_offset;
         if (uio_cntl(uio, FCNTL_SETPOS, &segment_location) < 0) return -EIO;
         if (uio_read(uio, (void *)phdr.p_vaddr, phdr.p_filesz) != phdr.p_filesz) return -EIO;
+        // zero the extra region
         if (phdr.p_filesz < phdr.p_memsz) {
             void* zero_start = (void *)(phdr.p_vaddr + phdr.p_filesz);
             size_t zero_size = phdr.p_memsz - phdr.p_filesz;
             memset(zero_start, 0, zero_size);
         }
+
+        // set flags
+        int rwxug_flags = PTE_U;
+        if (phdr.p_flags & PF_X) rwxug_flags |= PTE_X;
+        if (phdr.p_flags & PF_W) rwxug_flags |= PTE_W;
+        if (phdr.p_flags & PF_R) rwxug_flags |= PTE_R;
+        set_range_flags((void*)aligned_vma, size, rwxug_flags);
     }
+    
     // return the start of the entry point
     *eptr = (void (*)(void))ehdr.e_entry;
 

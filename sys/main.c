@@ -20,6 +20,7 @@
 #include "timer.h"
 #include "elf.h"
 #include "uioimpl.h"
+#include "process.h"
 
 #define INITEXE "trek"  // FIXME
 
@@ -41,7 +42,7 @@ static void mount_cdrive(void);  // mount primary storage device ("C drive")
 static void run_init(void);
 
 void main(void) {
-    extern char _kimg_end[];  // provided by kernel.ld
+    // extern char _kimg_end[];  // provided by kernel.ld
     console_init();
     intrmgr_init();
     devmgr_init();
