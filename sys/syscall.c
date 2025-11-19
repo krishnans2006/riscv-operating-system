@@ -56,6 +56,8 @@ static int sysfcntl(int fd, int cmd, void *arg);
 static int syspipe(int *wfdptr, int *rfdptr);
 static int sysuiodup(int oldfd, int newfd);
 
+static int copy_and_parse_path_from_user(const char *upath, char **mpnamep, char **flnamep, char **kpathp);
+
 // EXPORTED FUNCTION DEFINITIONS
 //
 
@@ -67,7 +69,14 @@ static int sysuiodup(int oldfd, int newfd);
  * @return void
  */
 
-void handle_syscall(struct trap_frame *tfr) {}
+void handle_syscall(struct trap_frame *tfr) {
+
+    trace("%s(a7=%ld)", __func__, tfr->a7);
+
+    tfr->sepc += 4; // continue from next instruction
+    // Execute syscall
+     tfr->a0 = syscall(tfr);
+}
 
 // INTERNAL FUNCTION DEFINITIONS
 //
@@ -80,14 +89,105 @@ void handle_syscall(struct trap_frame *tfr) {}
  * @return result of syscall
  */
 
-int64_t syscall(const struct trap_frame *tfr) { return -ENOTSUP; }
+int64_t syscall(const struct trap_frame *tfr) { 
+    switch (tfr->a7) {
+        case SYSCALL_EXIT:
+            // never returns
+            return sysexit();
+
+        case SYSCALL_EXEC:
+            return sysexec((int)tfr->a0, (int)tfr->a1, (char **)tfr->a2);
+
+        case SYSCALL_FORK:
+            return sysfork(tfr);
+
+        case SYSCALL_WAIT:
+            return syswait((int)tfr->a0);
+
+        case SYSCALL_PRINT:
+            return sysprint((const char *)tfr->a0);
+
+        case SYSCALL_USLEEP:
+            return sysusleep((unsigned long)tfr->a0);
+
+        case SYSCALL_FSCREATE:
+            return sysfscreate((const char *)tfr->a0);
+
+        case SYSCALL_FSDELETE:
+            return sysfsdelete((const char *)tfr->a0);
+
+        case SYSCALL_OPEN:
+            return sysopen((int)tfr->a0, (const char *)tfr->a1);
+
+        case SYSCALL_CLOSE:
+            return sysclose((int)tfr->a0);
+
+        case SYSCALL_READ:
+            return sysread((int)tfr->a0, (void *)tfr->a1, (size_t)tfr->a2);
+
+        case SYSCALL_WRITE:
+            return syswrite((int)tfr->a0, (const void *)tfr->a1, (size_t)tfr->a2);
+
+        case SYSCALL_FCNTL:
+            return sysfcntl((int)tfr->a0, (int)tfr->a1, (void *)tfr->a2);
+
+        case SYSCALL_PIPE:
+            return syspipe((int *)tfr->a0, (int *)tfr->a1);
+
+        case SYSCALL_UIODUP:
+            return sysuiodup((int)tfr->a0, (int)tfr->a1);
+
+        default:
+            debug("%s: unknown syscall %ld", __func__, tfr->a7);
+            return -EINVAL;
+    }
+
+
+}
+
+int copy_and_parse_path_from_user(const char *upath, char **mpnamep, char **flnamep, char **kpathp) {
+    
+
+    if (upath == NULL || mpnamep == NULL || flnamep == NULL || kpathp == NULL) {
+        return -EINVAL;
+    }
+
+    int rc = validate_vstr(upath, PTE_U);
+    if (rc != 0) {
+        return rc;
+    }
+
+    size_t len = strlen(upath) + 1;
+    char * kpath = kmalloc(len);
+    if (kpath == NULL) {
+        return -ENOMEM;
+    }
+
+    memcpy(kpath, upath, len);
+    
+    char *mpname, *flname;
+
+    rc = parse_path(kpath, &mpname, &flname);
+    if (rc != 0) {
+        kfree(kpath);
+        return rc;
+    }
+
+    *kpathp  = kpath;
+    *mpnamep = mpname;
+    *flnamep = flname;
+    return 0;
+}
 
 /**
  * @brief Calls process exit
  * @return void
  */
 
-int sysexit(void) { return 0; }
+int sysexit(void) { 
+    process_exit();
+    return 0; 
+}
 
 /**
  * @brief Executes new process given a executable and arguments
@@ -99,7 +199,21 @@ int sysexit(void) { return 0; }
  * @return result of process_exec, else -EBADFD on invalid file descriptors
  */
 
-int sysexec(int fd, int argc, char **argv) { return 0; }
+int sysexec(int fd, int argc, char **argv) { 
+
+    struct process *proc = current_process();
+
+    trace("%s(fd=%d, argc=%d, argv=%p)", __func__, fd, argc, argv);
+
+    if (fd < 0 || fd >= PROCESS_UIOMAX) {
+        return -EBADFD;
+    }
+    if (proc->uiotab[fd] == NULL) {
+        return -EBADFD;
+    }
+
+    return process_exec(current_process()->uiotab[fd], argc, argv);
+ }
 
 /**
  * @brief Forks a new child process using process_fork
@@ -107,7 +221,11 @@ int sysexec(int fd, int argc, char **argv) { return 0; }
  * @return result of process_fork
  */
 
-int sysfork(const struct trap_frame *tfr) { return 0; }
+int sysfork(const struct trap_frame *tfr) { 
+
+    trace("%s()", __func__);
+    return process_fork(tfr);
+}
 
 /**
  * @brief Sleeps till a specified child process completes
@@ -116,7 +234,11 @@ int sysfork(const struct trap_frame *tfr) { return 0; }
  * @return result of thread_join else invalid on invalid thread id
  */
 
-int syswait(int tid) { return 0; }
+int syswait(int tid) { 
+    trace("%s(tid=%d)", __func__, tid);
+    return thread_join(tid);
+
+}
 
 /**
  * @brief Prints to console via kprintf
@@ -126,7 +248,19 @@ int syswait(int tid) { return 0; }
  * @return 0 on sucess else error from validate_vstr
  */
 
-int sysprint(const char *msg) { return 0; }
+int sysprint(const char *msg) { 
+
+    int result;
+    trace("%s(msg=%p)", __func__, msg);
+
+    result = validate_vstr(msg, PTE_U);
+
+    if (result != 0)
+        return result;
+    kprintf("Thread <%s:%d> says: %s\n", thread_name(running_thread()), running_thread(), msg);
+    return 0;
+
+}
 
 /**
  * @brief Sleeps process till specificed amount of time has passed
@@ -137,7 +271,10 @@ int sysprint(const char *msg) { return 0; }
  * @return 0
  */
 
-int sysusleep(unsigned long us) { return 0; }
+int sysusleep(unsigned long us) { 
+
+
+}
 
 /**
  * @brief Creates a new file in the filesystem specified by the path.
@@ -147,7 +284,30 @@ int sysusleep(unsigned long us) { return 0; }
  * @return 0 on success, negative error code if error on error.
  */
 
-int sysfscreate(const char *path) { return 0; }
+int sysfscreate(const char *path) { 
+    char *kpath = NULL;
+    char *mpname = NULL;
+    char *flname = NULL;
+
+    trace("%s(path=%p)", __func__, path);
+
+    int rc = copy_and_parse_path_from_user(path, &mpname, &flname, &kpath);
+    if (rc != 0) {
+        return rc;
+    }
+
+    // Need both mountpoint and filename for create_file
+    if (mpname == NULL || flname == NULL || *mpname == '\0' || *flname == '\0') {
+        kfree(kpath);
+        return -EINVAL;
+    }
+
+    rc = create_file(mpname, flname);
+
+    kfree(kpath);
+    return rc;
+
+}
 
 /**
  * @brief Deletes a file in the filesystem specified by the path.
@@ -157,7 +317,29 @@ int sysfscreate(const char *path) { return 0; }
  * @return 0 on success, negative error code if error on error.
  */
 
-int sysfsdelete(const char *path) { return 0; }
+int sysfsdelete(const char *path) { 
+    char *kpath = NULL;
+    char *mpname = NULL;
+    char *flname = NULL;
+
+    trace("%s(path=%p)", __func__, path);
+
+    int rc = copy_and_parse_path_from_user(path, &mpname, &flname, &kpath);
+    if (rc != 0) {
+        return rc;
+    }
+
+    // Need both mountpoint and filename for delete_file
+    if (mpname == NULL || flname == NULL || *mpname == '\0' || *flname == '\0') {
+        kfree(kpath);
+        return -EINVAL;
+    }
+
+    rc = delete_file(mpname, flname);
+
+    kfree(kpath);
+    return rc;
+}
 
 /**
  * @brief Opens a file or device of specified fd for given process
@@ -168,7 +350,50 @@ int sysfsdelete(const char *path) { return 0; }
  * @return fd number if sucessful else return error that occured -EMFILE or -EBADFD
  */
 
-int sysopen(int fd, const char *path) { return 0; }
+int sysopen(int fd, const char *path) { 
+    struct process *proc = current_process();
+    char *kpath = NULL;
+    char *mpname = NULL;
+    char *flname = NULL;
+    struct uio *u = NULL;
+
+    trace("%s(fd=%d, path=%p)", __func__, fd, path);
+
+    // Copy and parse user path
+    int rc = copy_and_parse_path_from_user(path, &mpname, &flname, &kpath);
+    if (rc != 0) {
+        return rc;
+    }
+
+    rc = open_file(mpname, flname, &u);
+    if (rc != 0) {
+        kfree(kpath);
+        return rc;
+    }
+
+    if (fd < 0) {
+        uio_close(u);
+        kfree(kpath);
+        return -EINVAL ;  
+    } else {
+        if (fd >= PROCESS_UIOMAX) {
+            uio_close(u);
+            kfree(kpath);
+            return -EINVAL;
+        }
+        if (proc->uiotab[fd] != NULL) {
+            uio_close(u);
+            kfree(kpath);
+            return -EINVAL;
+        }
+    }
+
+    proc->uiotab[fd] = u;
+
+    kfree(kpath);
+    return fd;
+
+}
 
 /**
  * @brief Closes file or device of specified fd for given process

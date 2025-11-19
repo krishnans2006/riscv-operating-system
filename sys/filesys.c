@@ -309,6 +309,34 @@ void nullfs_flush(struct filesystem* fs __attribute__((unused))) {
  * @return 0 on success, -EINVAL on invalid arguments.
  */
 int parse_path(char* path, char** mpnameptr, char** flnameptr) {
-    // FIXME
-    return -ENOTSUP;
+     char *slash;
+
+    if (path == NULL || mpnameptr == NULL || flnameptr == NULL) {
+        return -EINVAL;
+    }
+
+    if (*path == '\0') {
+        *mpnameptr = path;   
+        *flnameptr = NULL;  
+        return 0;
+    }
+
+    slash = strchr(path, '/');
+
+    if (slash == NULL) {
+ 
+        *mpnameptr = path;
+        *flnameptr = NULL;
+        return 0;
+    }
+
+    if (slash == path) {
+        return -EINVAL;
+    }
+
+    *slash = '\0';
+    *mpnameptr = path;
+    *flnameptr = slash + 1; 
+
+    return 0;
 }

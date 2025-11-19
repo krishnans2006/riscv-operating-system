@@ -85,7 +85,7 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
     void *stack_page = NULL;
     int stksz;
 
-    asm volatile("sfence.vma" ::: "memory");
+    sfence_vma();
 
     int rc = validate_vptr(argv, (size_t)(argc + 1) * sizeof(char *),
                        PTE_U | PTE_R);
@@ -104,12 +104,12 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
 
     reset_active_mspace();
 
-    void** eptr;
+    void (*entry)(void);   
 
-    rc = elf_load(exefile, &eptr);
-
+    rc = elf_load(exefile, &entry);
     if (rc < 0) {
         uio_close(exefile);
+        free_phys_page(stack_page);   
         return rc;
     }
 
@@ -130,9 +130,9 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
     tfr.sp = (void *)usp;             
     tfr.ra = NULL;  
 
-    tfr.sepc = (void *)*eptr;
+    tfr.sepc = (void *)entry;
 
-    uintptr_t sstatus = read_sstatus();
+    uintptr_t sstatus = csrr_sstatus();
     sstatus &= ~RISCV_SSTATUS_SPP;    // SPP = 0 (user)
     sstatus &= ~RISCV_SSTATUS_SIE;    // SIE = 0 in S-mode
     sstatus |= RISCV_SSTATUS_SPIE;    // SPIE = 1 (U-mode SIE <- 1 on sret)
@@ -163,7 +163,7 @@ void process_exit(void) {
 
     for (int i = 0; i < PROCESS_UIOMAX; i++) {
         if (proc->uiotab[i] != NULL) {
-            uioclose(proc->uiotab[i]);     
+            uio_close(proc->uiotab[i]);     
             proc->uiotab[i] = NULL;
         }
     }

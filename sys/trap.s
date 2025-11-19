@@ -89,6 +89,60 @@ _smode_trap_entry:
         csrrw   sp, sscratch, sp
         beqz    sp, smode_trap_entry_from_smode
 smode_trap_entry_from_umode:
+        # Save user gp and tp to trap frame
+        sd      gp, GP(sp)
+        sd      tp, TP(sp)
+
+        csrr    t6, sscratch
+        sd      t6, SP(sp)
+        csrw    sscratch, zero
+
+        sd      a0, A0(sp)
+        sd      a1, A1(sp)
+        sd      a2, A2(sp)
+        sd      a3, A3(sp)
+        sd      a4, A4(sp)
+        sd      a5, A5(sp)
+        sd      a6, A6(sp)
+        sd      a7, A7(sp)
+        sd      t0, T0(sp)
+        sd      t1, T1(sp)
+        sd      t2, T2(sp)
+        sd      t3, T3(sp)
+        sd      t4, T4(sp)
+        sd      t5, T5(sp)
+        sd      t6, T6(sp)
+        sd      s1, S1(sp)
+        sd      s2, S2(sp)
+        sd      s3, S3(sp)
+        sd      s4, S4(sp)
+        sd      s5, S5(sp)
+        sd      s6, S6(sp)
+        sd      s7, S7(sp)
+        sd      s8, S8(sp)
+        sd      s9, S9(sp)
+        sd      s10, S10(sp)
+        sd      s11, S11(sp)
+        sd      ra, RA(sp)
+        sd      fp, FP(sp)
+
+        rdinstret       t6
+        sd              t6, SINSTRET(sp)
+
+        csrr    t6, sstatus
+        sd      t6, SSTATUS(sp)
+        csrr    t6, sepc
+        sd      t6, SEPC(sp)
+
+        addi    fp, sp, TFRSZ
+
+        addi    t6, sp, TFRSZ
+        ld      tp, KTP(t6)      # tp = ktp (struct thread*)
+        ld      gp, KGP(t6)      # gp = kgp (kernel gp)
+
+        j       smode_trap_entry_from_umode_cont
+
+
 
 smode_trap_entry_from_smode:
 
@@ -214,6 +268,18 @@ smode_trap_entry_from_smode_cont:      csrr    a0, scause      # a0 contains "ex
         srli    a0, a0, 1       #
 
         j       handle_smode_interrupt # in intr.c
+
+smode_trap_entry_from_umode_cont:
+        csrr    a0, scause      
+        mv      a1, sp          
+
+
+        bgez    a0, handle_umode_exception    
+
+ 
+        slli    a0, a0, 1       
+        srli    a0, a0, 1
+        j       handle_smode_interrupt            
 
 # void __attribute__ ((noreturn)) trap_frame_jump(struct trap_frame * tfr);
 
