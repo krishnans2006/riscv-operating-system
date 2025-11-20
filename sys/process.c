@@ -81,7 +81,66 @@ void procmgr_init(void) {
 
 int process_exec(struct uio* exefile, int argc, char** argv) {
     // FIXME
-    return 0;
+
+    void *stack_page = NULL;
+    int stksz;
+
+    sfence_vma();
+
+    int rc = validate_vptr(argv, (size_t)(argc + 1) * sizeof(char *), PTE_U | PTE_R);
+
+    for (int i = 0; i < argc; i++) {
+        rc = validate_vstr(argv[i], PTE_U | PTE_R);
+        if (rc < 0) {
+            uio_close(exefile);
+            return rc;
+        }
+    }
+
+    stack_page = alloc_phys_page();
+
+    stksz = build_stack(stack_page, argc, argv);
+
+    reset_active_mspace();
+
+    void (*entry)(void);   
+
+    rc = elf_load(exefile, &entry);
+    if (rc < 0) {
+        uio_close(exefile);
+        free_phys_page(stack_page);   
+        return rc;
+    }
+
+    uio_close(exefile);
+
+    uintptr_t user_stack_vma = UMEM_END_VMA - PAGE_SIZE;
+
+    map_page(user_stack_vma, stack_page, PTE_R | PTE_W | PTE_U);
+
+    uintptr_t usp = UMEM_END_VMA - (uintptr_t)stksz;
+
+    struct trap_frame tfr;
+    memset(&tfr, 0, sizeof(tfr));
+
+    tfr.a0 = argc;                    
+    tfr.a1 = (long)usp;         
+    tfr.sp = (void *)usp;             
+    tfr.ra = NULL;  
+
+    tfr.sepc = (void *)entry;
+
+    uintptr_t sstatus = csrr_sstatus();
+    sstatus &= ~RISCV_SSTATUS_SPP;    // SPP = 0 
+    sstatus &= ~RISCV_SSTATUS_SIE;    // SIE = 0 
+    sstatus |= RISCV_SSTATUS_SPIE;    // SPIE = 1 
+    tfr.sstatus = (long)sstatus;
+
+
+    void *sscratch_value = (char *)running_thread_stack_base() - sizeof(struct trap_frame);
+
+    trap_frame_jump(&tfr, sscratch_value);
+
 }
 
 int process_fork(const struct trap_frame* tfr) {
@@ -98,6 +157,25 @@ int process_fork(const struct trap_frame* tfr) {
  */
 void process_exit(void) {
     // FIXME
+    struct process *proc = running_thread_process();
+
+    for (int i = 0; i < PROCESS_UIOMAX; i++) {
+        if (proc->uiotab[i] != NULL) {
+            uio_close(proc->uiotab[i]);     
+            proc->uiotab[i] = NULL;
+        }
+    }
+
+    discard_active_mspace(); 
+
+    proctab[proc->tid] = NULL;
+
+    if (proc != &main_proc) {
+        kfree(proc);                       // EXTERNAL: heap free
+    }
+
+    running_thread_exit();  
+
 }
 
 // INTERNAL FUNCTION DEFINITIONS

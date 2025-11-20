@@ -10,6 +10,7 @@
 #include "intr.h"
 #include "memory.h"
 #include "misc.h"
+#include "process.h"
 #include "riscv.h"
 #include "string.h"
 #include "thread.h"
@@ -103,4 +104,43 @@ void handle_smode_exception(unsigned int cause, struct trap_frame* tfr) {
  * @param tfr Trap frame pointer
  * @return None
  */
-void handle_umode_exception(unsigned int cause, struct trap_frame* tfr) { return; }
+void handle_umode_exception(unsigned int cause, struct trap_frame* tfr) {
+    const char* name = NULL;
+    char msgbuf[128];
+
+    if (0 <= cause && cause < sizeof(excp_names) / sizeof(excp_names[0])) {
+        name = excp_names[cause];
+    }
+    if(name != NULL){
+        switch (cause) {
+            case RISCV_SCAUSE_ECALL_FROM_UMODE:
+                handle_syscall(tfr);
+
+
+                // Return to trap.s; it will restore regs and sret back to U mode.
+                return;
+            
+            case RISCV_SCAUSE_LOAD_PAGE_FAULT:
+            case RISCV_SCAUSE_STORE_PAGE_FAULT: 
+                int result = handle_umode_page_fault(tfr, (uintptr_t)tfr->a0);
+
+                if(result == 1){
+                    return;
+                }
+                process_exit();
+
+
+            case RISCV_SCAUSE_INSTR_PAGE_FAULT:
+            default:
+
+                snprintf(msgbuf, sizeof(msgbuf),"%s at %p in U mode",name, (void*)tfr->sepc);
+
+                kprintf("%s\n", msgbuf);
+
+                process_exit();
+                        
+        }
+    }else{
+        snprintf(msgbuf, sizeof(msgbuf), "Exception %d at %p in U mode", cause, (void*)tfr->sepc);
+    }
+}
