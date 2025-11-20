@@ -10,6 +10,7 @@
 #include "intr.h"
 #include "memory.h"
 #include "misc.h"
+#include "process.h"
 #include "riscv.h"
 #include "string.h"
 #include "thread.h"
@@ -118,15 +119,25 @@ void handle_umode_exception(unsigned int cause, struct trap_frame* tfr) {
 
                 // Return to trap.s; it will restore regs and sret back to U mode.
                 return;
-            case RISCV_SCAUSE_INSTR_PAGE_FAULT:
+            
             case RISCV_SCAUSE_LOAD_PAGE_FAULT:
             case RISCV_SCAUSE_STORE_PAGE_FAULT: 
+                int result = handle_umode_page_fault(tfr, (uintptr_t)tfr->a0);
+
+                if(result == 1){
+                    return;
+                }
+                process_exit();
+
+
+            case RISCV_SCAUSE_INSTR_PAGE_FAULT:
             default:
 
                 snprintf(msgbuf, sizeof(msgbuf),"%s at %p in U mode",name, (void*)tfr->sepc);
-                
 
                 kprintf("%s\n", msgbuf);
+
+                process_exit();
                         
         }
     }else{
