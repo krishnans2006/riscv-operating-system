@@ -416,9 +416,10 @@ int sysopen(int fd, const char *path) {
 
 int sysclose(int fd) { 
     struct process *proc = current_process();
-    
+
     if(proc->uiotab[fd] != NULL){
         uio_close(proc->uiotab[fd]);
+        return 0;
     } else {
         return -EINVAL;
     }
