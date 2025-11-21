@@ -116,19 +116,22 @@ void handle_umode_exception(unsigned int cause, struct trap_frame* tfr) {
             case RISCV_SCAUSE_ECALL_FROM_UMODE:
                 handle_syscall(tfr);
 
-
-                // Return to trap.s; it will restore regs and sret back to U mode.
                 return;
             
             case RISCV_SCAUSE_LOAD_PAGE_FAULT:
             case RISCV_SCAUSE_STORE_PAGE_FAULT: 
-                int result = handle_umode_page_fault(tfr, (uintptr_t)tfr->a0);
+
+                uintptr_t vma = csrr_stval();
+
+                int result = handle_umode_page_fault(tfr, vma);
 
                 if(result == 1){
                     return;
                 }
-                process_exit();
 
+                snprintf(msgbuf, sizeof(msgbuf), "Exception %u at %p for %p in U mode", cause, (void*)tfr->sepc, (void*)vma);
+
+                process_exit();
 
             case RISCV_SCAUSE_INSTR_PAGE_FAULT:
             default:
@@ -142,5 +145,7 @@ void handle_umode_exception(unsigned int cause, struct trap_frame* tfr) {
         }
     }else{
         snprintf(msgbuf, sizeof(msgbuf), "Exception %d at %p in U mode", cause, (void*)tfr->sepc);
+
+        process_exit();
     }
 }
