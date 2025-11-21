@@ -244,23 +244,28 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
     // Find the file
 
     // Get root inode
-    struct ktfs_inode* root_inode;
+    struct ktfs_inode* root_inode_orig;
     int root_inode_num;
     struct ktfs_inode_block* inode_block;
-    int result = get_root_inode(ktfs, &root_inode, &root_inode_num, &inode_block);
+    int result =
+        get_root_inode(ktfs, &root_inode_orig, &root_inode_num, &inode_block);
     if (result != 0) {
         return result;
     }
 
+    // Copy root inode so we can release the block
+    struct ktfs_inode root_inode = *root_inode_orig;
+    cache_release_block(ktfs->cache, (void*)inode_block, 0);
+
     // Go through the root directory to find the file
-    uint32_t num_dentries = root_inode->size / KTFS_DENSZ;  // Must be exactly divisible
+    uint32_t num_dentries = root_inode.size / KTFS_DENSZ;  // Must be exactly divisible
 
     struct ktfs_dir_entry* dentry;
     struct ktfs_directory* dir_block;
     
     for (uint32_t i = 0; i <= num_dentries; i++) {
         // Get nth dentry
-        result = ktfs_get_nth_dentry(ktfs, root_inode, i, &dentry, &dir_block);
+        result = ktfs_get_nth_dentry(ktfs, &root_inode, i, &dentry, &dir_block);
         if (result != 0) {
             cache_release_block(ktfs->cache, (void*)inode_block, 0);
             return result;
