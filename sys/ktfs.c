@@ -116,6 +116,7 @@ static int ktfs_claim_data_block(struct ktfs_fs* ktfs, uint32_t* block_num_ptr);
 static int ktfs_release_data_block(struct ktfs_fs* ktfs, uint32_t block_num);
 static int ktfs_expand_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsigned long new_size);
 static int ktfs_shrink_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsigned long new_size);
+static int ktfs_does_file_exist(struct ktfs_fs* ktfs, const char* name, int* exists_ptr);
 
 static struct ktfs_file* get_opened_file(struct opened_files* ofiles, const char* name);
 static int add_opened_file(struct opened_files* ofiles, struct ktfs_file* file);
@@ -267,7 +268,6 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
         // Get nth dentry
         result = ktfs_get_nth_dentry(ktfs, &root_inode, i, &dentry, &dir_block);
         if (result != 0) {
-            cache_release_block(ktfs->cache, (void*)inode_block, 0);
             return result;
         }
         // Check if this is the file we want
@@ -276,7 +276,6 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
             struct ktfs_inode file_inode;
             result = get_inode_from_dentry(ktfs, dentry, &file_inode);
             if (result != 0) {
-                cache_release_block(ktfs->cache, (void*)inode_block, 0);
                 cache_release_block(ktfs->cache, (void*)dir_block, 0);
                 return result;
             }
@@ -284,7 +283,6 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
             // Convert to file uio, add to opened files list, and return
             struct ktfs_file* file = kcalloc(1, sizeof(struct ktfs_file));
             if (file == NULL) {
-                cache_release_block(ktfs->cache, (void*)inode_block, 0);
                 cache_release_block(ktfs->cache, (void*)dir_block, 0);
                 return -ENOMEM;
             }
@@ -296,7 +294,6 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
             file->pos = 0;
             file->fs = ktfs;
 
-            cache_release_block(ktfs->cache, (void*)inode_block, 0);
             cache_release_block(ktfs->cache, (void*)dir_block, 0);
 
             result = add_opened_file(&ktfs->opened_files, file);
@@ -314,7 +311,6 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
     }
 
     // File not found
-    cache_release_block(ktfs->cache, (void*)inode_block, 0);
     return -ENOENT;
 }
 
@@ -1010,6 +1006,46 @@ static int ktfs_shrink_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
     return 0;
 }
 
+static int ktfs_does_file_exist(struct ktfs_fs* ktfs, const char* name, int* exists_ptr) {
+    // Get root inode
+    struct ktfs_inode* root_inode_orig;
+    int root_inode_num;
+    struct ktfs_inode_block* inode_block;
+    int result = get_root_inode(ktfs, &root_inode_orig, &root_inode_num, &inode_block);
+    if (result != 0) {
+        return result;
+    }
+
+    // Copy root inode so we can release inode block
+    struct ktfs_inode root_inode = *root_inode_orig;;
+    cache_release_block(ktfs->cache, (void*)inode_block, 0);
+
+    // Go through root directory to find the file
+    uint32_t num_dentries = root_inode.size / KTFS_DENSZ;
+
+    struct ktfs_dir_entry* dentry;
+    struct ktfs_directory* dir_block;
+
+    for (uint32_t i = 0; i < num_dentries; i++) {
+        result = ktfs_get_nth_dentry(ktfs, &root_inode, i, &dentry, &dir_block);
+        if (result != 0) {
+            return result;
+        }
+
+        if (strcmp(dentry->name, name) == 0) {
+            // File found
+            *exists_ptr = 1;
+            cache_release_block(ktfs->cache, (void*)dir_block, 0);
+            return 0;
+        }
+
+        cache_release_block(ktfs->cache, (void*)dir_block, 0);
+    }
+
+    *exists_ptr = 0;
+    return 0;
+}
+
 // OPENED FILES LIST HELPERS
 //
 
@@ -1237,9 +1273,19 @@ long ktfs_store(struct uio* uio, const void* buf, unsigned long len) {
 int ktfs_create(struct filesystem* fs, const char* name) {
     struct ktfs_fs* ktfs = (struct ktfs_fs*)fs;
 
+    // Does the file already exist?
+    int exists;
+    int result = ktfs_does_file_exist(ktfs, name, &exists);
+    if (result != 0) {
+        return result;
+    }
+    if (exists) {
+        return -EEXIST;
+    }
+
     // Claim an inode number
     uint16_t inode_num;
-    int result = ktfs_claim_inode(ktfs, &inode_num);
+    result = ktfs_claim_inode(ktfs, &inode_num);
     if (result != 0) {
         return result;
     }
@@ -1300,11 +1346,27 @@ int ktfs_create(struct filesystem* fs, const char* name) {
 int ktfs_delete(struct filesystem* fs, const char* name) {
     struct ktfs_fs* ktfs = (struct ktfs_fs*)fs;
 
+    // Does the file exist?
+    int exists;
+    int result = ktfs_does_file_exist(ktfs, name, &exists);
+    if (result != 0) {
+        return result;
+    }
+    if (!exists) {
+        return -ENOENT;
+    }
+
+    // Is the file open?
+    struct ktfs_file* opened_file = get_opened_file(&ktfs->opened_files, name);
+    if (opened_file != NULL) {
+        return -EBUSY;
+    }
+
     // Get root inode
     struct ktfs_inode* root_inode;
     int root_inode_num;
     struct ktfs_inode_block* inode_block;
-    int result = get_root_inode(ktfs, &root_inode, &root_inode_num, &inode_block);
+    result = get_root_inode(ktfs, &root_inode, &root_inode_num, &inode_block);
     if (result != 0) {
         return result;
     }
