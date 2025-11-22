@@ -115,7 +115,6 @@ void run_init(void) {
     struct uio* initexe;
     struct uio* console_uio;
     int result;
-    void (*entry)(struct uio *console) = NULL;
 
     result = open_file(CMNTNAME, INITEXE, &initexe);
 
@@ -128,25 +127,19 @@ void run_init(void) {
     //  Run your executable here
     //  Note that trek takes in a uio object to output to the console
 
-    result = elf_load(initexe, (void*)&entry);
-
-    if (result != 0) {
-        kprintf("elf_load failed %s\n", error_name(result));
-        halt_failure();
-    }
-
-    uio_close(initexe);
-
     result = open_file(DEVMNTNAME, "uart1", &console_uio);
     if (result != 0) {
         kprintf("uart open failed %s\n", error_name(result));
         halt_failure();
     }
 
+    struct process* proc = current_process();
+    if (proc) {
+        proc->uiotab[2] = console_uio;
+    }
 
-    entry(console_uio);
+    result = process_exec(initexe, 0, NULL);
 
-    uio_close(console_uio);
-
-    halt_success();
+    kprintf("process_exec failed: %s\n", error_name(result));
+    halt_failure();
 }
