@@ -89,6 +89,11 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
 
     int rc = validate_vptr(argv, (size_t)(argc + 1) * sizeof(char *), PTE_U | PTE_R);
 
+    if (rc < 0) {
+        uio_close(exefile);
+        return rc;
+    }
+
     for (int i = 0; i < argc; i++) {
         rc = validate_vstr(argv[i], PTE_U | PTE_R);
         if (rc < 0) {
@@ -171,7 +176,7 @@ void process_exit(void) {
     proctab[proc->tid] = NULL;
 
     if (proc != &main_proc) {
-        kfree(proc);                       // EXTERNAL: heap free
+        kfree(proc);                       
     }
 
     running_thread_exit();  

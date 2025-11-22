@@ -138,7 +138,7 @@ int64_t syscall(const struct trap_frame *tfr) {
             return sysuiodup((int)tfr->a0, (int)tfr->a1);
 
         default:
-            debug("%s: unknown syscall %ld", __func__, tfr->a7);
+            
             return -EINVAL;
     }
 
