@@ -28,6 +28,14 @@ void run_testsuite_ktfs(const char* name) {
     kprintf("Run test_multiblock_reads:\n");
     retval = test_multiblock_reads();
     kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
+
+    kprintf("Run test_create:\n");
+    retval = test_create();
+    kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
+
+    kprintf("Run test_create_write:\n");
+    retval = test_create_write();
+    kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
 }
 
 int test_open() {
@@ -285,6 +293,51 @@ int test_multiblock_reads() {
 
         total_bytes_read += bytes_read;
     };
+
+    uio_close(uio);
+    return 0;
+}
+
+int test_create() {
+    int result = create_file("c", "file.txt");
+    if (result != 0) {
+        kprintf("create_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    struct uio* uio;
+    result = open_file("c", "file.txt", &uio);
+    if (result != 0) {
+        kprintf("open_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    uio_close(uio);
+    return 0;
+}
+
+int test_create_write() {
+    int result = create_file("c", "file2.txt");
+    if (result != 0) {
+        kprintf("create_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    struct uio* uio;
+    result = open_file("c", "file2.txt", &uio);
+    if (result != 0) {
+        kprintf("open_file failed: %s\n", error_name(result));
+        return result;
+    }
+    
+    const char* message = "Hello, KTFS!";
+    long bytes_written = uio_write(uio, message, strlen(message));
+    if (bytes_written < 0) {
+        kprintf("uio_write failed: %s\n", error_name(bytes_written));
+        uio_close(uio);
+        return -1;
+    }
+    assert(bytes_written == (long)strlen(message));
 
     uio_close(uio);
     return 0;

@@ -538,7 +538,7 @@ static void ptab_adjust(struct pte *ptab, unsigned long vpn, int rwxug_flags) {
 
     // (3) adjust flags of entry
     if (!PTE_VALID(level0_table[vpn0])) panic("ptab_adjust: vpn0 entry is invalid");
-    level0_table[vpn0].flags = rwxug_flags;
+    level0_table[vpn0].flags = rwxug_flags | PTE_A | PTE_D | PTE_V;
 }
 /*
     inputs: ptab        - root page table of the memory space
