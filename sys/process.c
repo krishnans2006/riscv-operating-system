@@ -87,20 +87,7 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
 
     sfence_vma();
 
-    int rc = validate_vptr(argv, (size_t)(argc + 1) * sizeof(char *), PTE_U | PTE_R);
-
-    if (rc < 0) {
-        uio_close(exefile);
-        return rc;
-    }
-
-    for (int i = 0; i < argc; i++) {
-        rc = validate_vstr(argv[i], PTE_U | PTE_R);
-        if (rc < 0) {
-            uio_close(exefile);
-            return rc;
-        }
-    }
+    int rc;
 
     stack_page = alloc_phys_page();
 
