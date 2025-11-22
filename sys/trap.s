@@ -140,7 +140,54 @@ smode_trap_entry_from_umode:
         ld      tp, KTP(t6)      # tp = ktp (struct thread*)
         ld      gp, KGP(t6)      # gp = kgp (kernel gp)
 
-        j       smode_trap_entry_from_umode_cont
+        call       smode_trap_entry_from_umode_cont
+
+        ld      a0, A0(sp)
+        ld      a1, A1(sp)
+        ld      a2, A2(sp)
+        ld      a3, A3(sp)
+        ld      a4, A4(sp)
+        ld      a5, A5(sp)
+        ld      a6, A6(sp)
+        ld      a7, A7(sp)
+        ld      t0, T0(sp)
+        ld      t1, T1(sp)
+        ld      t2, T2(sp)
+        ld      t3, T3(sp)
+        ld      t4, T4(sp)
+        ld      t5, T5(sp)
+        ld      s1, S1(sp)
+        ld      s2, S2(sp)
+        ld      s3, S3(sp)
+        ld      s4, S4(sp)
+        ld      s5, S5(sp)
+        ld      s6, S6(sp)
+        ld      s7, S7(sp)
+        ld      s8, S8(sp)
+        ld      s9, S9(sp)
+        ld      s10, S10(sp)
+        ld      s11, S11(sp)
+        ld      ra, RA(sp)
+        ld      fp, FP(sp)
+
+        # Restore sstatus
+        ld      t6, SSTATUS(sp)
+        csrw    sstatus, t6
+        ld      t6, SEPC(sp)
+        csrw    sepc, t6
+
+        # Restore user gp and tp
+        ld      gp, GP(sp)
+        ld      tp, TP(sp)
+
+        csrw    sscratch, sp
+
+        ld      t6, T6(sp)
+        ld      sp, SP(sp)
+
+        sret    # Return to U-mode
+
+
 
 
 
