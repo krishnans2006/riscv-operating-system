@@ -22,7 +22,7 @@
 #include "uioimpl.h"
 #include "process.h"
 
-#define INITEXE "trek"  // FIXME
+#define INITEXE "hello"  // FIXME
 
 #define CMNTNAME "c"
 #define DEVMNTNAME "dev"
@@ -135,10 +135,15 @@ void run_init(void) {
 
     struct process* proc = current_process();
     if (proc) {
-        proc->uiotab[2] = console_uio;
+        //proc->uiotab[2] = console_uio;
+        proc->uiotab[1] = console_uio;
     }
 
-    result = process_exec(initexe, 0, NULL);
+    char* argv[2];
+    argv[0] = INITEXE;
+    argv[1] = NULL;
+
+    result = process_exec(initexe, 1, &argv);
 
     kprintf("process_exec failed: %s\n", error_name(result));
     halt_failure();
