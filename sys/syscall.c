@@ -383,20 +383,30 @@ int sysopen(int fd, const char *path) {
         return rc;
     }
 
-    if (fd < 0) {
+    if (fd ==  -1) {
+        for ( int i = 0; i < PROCESS_UIOMAX; i++) {
+            if (proc->uiotab[i] == NULL) {
+                
+                proc->uiotab[i] = u;
+                kfree(kpath);
+                return i;
+            }
+        }
+    
+    } else if (fd < -1){
         uio_close(u);
         kfree(kpath);
-        return -EINVAL;  
-    } else {
+        return -EBADFD;
+    }else {
         if (fd >= PROCESS_UIOMAX) {
             uio_close(u);
             kfree(kpath);
-            return -EINVAL;
+            return -EBADFD;
         }
         if (proc->uiotab[fd] != NULL) {
             uio_close(u);
             kfree(kpath);
-            return -EINVAL;
+            return -EBADFD;
         }
     }
 
