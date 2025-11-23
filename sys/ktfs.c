@@ -45,6 +45,10 @@ struct ktfs_fs {
     struct filesystem base;  // castable from struct filesystem*
     struct cache* cache;  // stores all other info (storage, cache, etc.)
     struct opened_files opened_files;  // list of opened files
+
+    uint32_t K;
+    uint32_t B;
+    uint32_t N;
 };
 
 // Wrapper for ktfs_superblock to fill a full block
@@ -158,6 +162,10 @@ static int get_root_inode(struct ktfs_fs* ktfs, struct ktfs_inode** root_inode_p
     uint16_t inodes_start_block = 1 + superblock->fields.inode_bitmap_block_count + superblock->fields.bitmap_block_count;
     uint16_t inode_block_offset = (root_inode_num * KTFS_INOSZ) / KTFS_BLKSZ;
     uint16_t inode_offset_within_block = root_inode_num % (KTFS_BLKSZ / KTFS_INOSZ);
+
+    ktfs->K = superblock->fields.inode_bitmap_block_count;
+    ktfs->B = superblock->fields.bitmap_block_count;
+    ktfs->N = superblock->fields.inode_block_count;
 
     cache_release_block(ktfs->cache, (void*)superblock, 0);
 
@@ -328,7 +336,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         int block_index = n / num_dentries_per_block;
         int entry_index = n % num_dentries_per_block;
 
-        int result = cache_get_block_by_index(ktfs->cache, dir_inode->block[block_index] + 4, (void**)&dir_block);
+        int result = cache_get_block_by_index(ktfs->cache, dir_inode->block[block_index] + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dir_block);
         if (result != 0) {
             return result;
         }
@@ -345,7 +353,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         int entry_index = new_n % num_dentries_per_block;
 
         struct ktfs_indirect_block* indirect_block;
-        int result = cache_get_block_by_index(ktfs->cache, dir_inode->indirect + 4, (void**)&indirect_block);
+        int result = cache_get_block_by_index(ktfs->cache, dir_inode->indirect + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&indirect_block);
         if (result != 0) {
             return result;
         }
@@ -353,7 +361,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
 
         cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
-        result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&dir_block);
+        result = cache_get_block_by_index(ktfs->cache, data_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dir_block);
         if (result != 0) {
             return result;
         }
@@ -369,7 +377,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         int entry_index = new_n % num_dentries_per_block;
 
         struct ktfs_indirect_block* dindirect_block;
-        int result = cache_get_block_by_index(ktfs->cache, dir_inode->dindirect[dindirect_block_index] + 4, (void**)&dindirect_block);
+        int result = cache_get_block_by_index(ktfs->cache, dir_inode->dindirect[dindirect_block_index] + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dindirect_block);
         if (result != 0) {
             return result;
         }
@@ -378,7 +386,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
         cache_release_block(ktfs->cache, (void*)dindirect_block, 0);
 
         struct ktfs_indirect_block* indirect_block;
-        result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 4, (void**)&indirect_block);
+        result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&indirect_block);
         if (result != 0) {
             return result;
         }
@@ -386,7 +394,7 @@ static int ktfs_get_nth_dentry(struct ktfs_fs* ktfs, struct ktfs_inode* dir_inod
 
         cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
-        result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&dir_block);
+        result = cache_get_block_by_index(ktfs->cache, data_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dir_block);
         if (result != 0) {
             return result;
         }
@@ -410,7 +418,7 @@ static int ktfs_get_data_block(struct ktfs_fs* ktfs, struct ktfs_inode* inode, i
     if (block_index < KTFS_NUM_DIRECT_DATA_BLOCKS) {
         // Direct block case
         uint32_t data_block_num = inode->block[block_index];
-        int result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&data_block);
+        int result = cache_get_block_by_index(ktfs->cache, data_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&data_block);
         if (result != 0) {
             return result;
         }
@@ -419,7 +427,7 @@ static int ktfs_get_data_block(struct ktfs_fs* ktfs, struct ktfs_inode* inode, i
         int within_indirect_index = (block_index - KTFS_NUM_DIRECT_DATA_BLOCKS) % num_indirections_per_indirect_block;
         
         struct ktfs_indirect_block* indirect_block;
-        int result = cache_get_block_by_index(ktfs->cache, inode->indirect + 4, (void**)&indirect_block);
+        int result = cache_get_block_by_index(ktfs->cache, inode->indirect + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&indirect_block);
         if (result != 0) {
             return result;
         }
@@ -427,7 +435,7 @@ static int ktfs_get_data_block(struct ktfs_fs* ktfs, struct ktfs_inode* inode, i
 
         cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
-        result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&data_block);
+        result = cache_get_block_by_index(ktfs->cache, data_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&data_block);
         if (result != 0) {
             return result;
         }
@@ -439,7 +447,7 @@ static int ktfs_get_data_block(struct ktfs_fs* ktfs, struct ktfs_inode* inode, i
         int within_indirect_index = new_i % num_indirections_per_indirect_block;
 
         struct ktfs_indirect_block* dindirect_block;
-        int result = cache_get_block_by_index(ktfs->cache, inode->dindirect[dindirect_block_index] + 4, (void**)&dindirect_block);
+        int result = cache_get_block_by_index(ktfs->cache, inode->dindirect[dindirect_block_index] + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dindirect_block);
         if (result != 0) {
             return result;
         }
@@ -448,7 +456,7 @@ static int ktfs_get_data_block(struct ktfs_fs* ktfs, struct ktfs_inode* inode, i
         cache_release_block(ktfs->cache, (void*)dindirect_block, 0);
 
         struct ktfs_indirect_block* indirect_block;
-        result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 4, (void**)&indirect_block);
+        result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&indirect_block);
         if (result != 0) {
             return result;
         }
@@ -456,7 +464,7 @@ static int ktfs_get_data_block(struct ktfs_fs* ktfs, struct ktfs_inode* inode, i
 
         cache_release_block(ktfs->cache, (void*)indirect_block, 0);
 
-        result = cache_get_block_by_index(ktfs->cache, data_block_num + 4, (void**)&data_block);
+        result = cache_get_block_by_index(ktfs->cache, data_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&data_block);
         if (result != 0) {
             return result;
         }
@@ -828,7 +836,7 @@ static int ktfs_expand_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
 
                     // Update doubly-indirect block to point to this indirect block
                     struct ktfs_indirect_block* dindirect_block;
-                    result = cache_get_block_by_index(ktfs->cache, inode->dindirect[i] + 4, (void**)&dindirect_block);
+                    result = cache_get_block_by_index(ktfs->cache, inode->dindirect[i] + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dindirect_block);
                     if (result != 0) {
                         return result;
                     }
@@ -860,7 +868,7 @@ static int ktfs_expand_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
         } else if (i < KTFS_NUM_DIRECT_DATA_BLOCKS + (KTFS_NUM_INDIRECT_BLOCKS * num_indirections_per_indirect_block)) {
             // Indirect block
             struct ktfs_indirect_block* indirect_block;
-            result = cache_get_block_by_index(ktfs->cache, inode->indirect + 4, (void**)&indirect_block);
+            result = cache_get_block_by_index(ktfs->cache, inode->indirect + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&indirect_block);
             if (result != 0) {
                 return result;
             }
@@ -876,7 +884,7 @@ static int ktfs_expand_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
             int within_indirect_index = new_i % num_indirections_per_indirect_block;
             
             struct ktfs_indirect_block* dindirect_block;
-            result = cache_get_block_by_index(ktfs->cache, inode->dindirect[dindirect_block_index] + 4, (void**)&dindirect_block);
+            result = cache_get_block_by_index(ktfs->cache, inode->dindirect[dindirect_block_index] + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dindirect_block);
             if (result != 0) {
                 return result;
             }
@@ -884,7 +892,7 @@ static int ktfs_expand_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
             cache_release_block(ktfs->cache, (void*)dindirect_block, 0);
 
             struct ktfs_indirect_block* indirect_block;
-            result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 4, (void**)&indirect_block);
+            result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&indirect_block);
             if (result != 0) {
                 return result;
             }
@@ -930,7 +938,7 @@ static int ktfs_shrink_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
         } else if (i < KTFS_NUM_DIRECT_DATA_BLOCKS + (KTFS_NUM_INDIRECT_BLOCKS * num_indirections_per_indirect_block)) {
             // Indirect block
             struct ktfs_indirect_block* indirect_block;
-            int result = cache_get_block_by_index(ktfs->cache, inode->indirect + 4, (void**)&indirect_block);
+            int result = cache_get_block_by_index(ktfs->cache, inode->indirect + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&indirect_block);
             if (result != 0) {
                 return result;
             }
@@ -947,7 +955,7 @@ static int ktfs_shrink_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
             int within_indirect_index = new_i % num_indirections_per_indirect_block;
 
             struct ktfs_indirect_block* dindirect_block;
-            int result = cache_get_block_by_index(ktfs->cache, inode->dindirect[dindirect_block_index] + 4, (void**)&dindirect_block);
+            int result = cache_get_block_by_index(ktfs->cache, inode->dindirect[dindirect_block_index] + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dindirect_block);
             if (result != 0) {
                 return result;
             }
@@ -955,7 +963,7 @@ static int ktfs_shrink_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
             cache_release_block(ktfs->cache, (void*)dindirect_block, 0);
 
             struct ktfs_indirect_block* indirect_block;
-            result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 4, (void**)&indirect_block);
+            result = cache_get_block_by_index(ktfs->cache, indirect_block_num + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&indirect_block);
             if (result != 0) {
                 return result;
             }
@@ -975,7 +983,7 @@ static int ktfs_shrink_file(struct ktfs_fs* ktfs, struct ktfs_inode* inode, unsi
         int dindirect_start_block = KTFS_NUM_DIRECT_DATA_BLOCKS + (KTFS_NUM_INDIRECT_BLOCKS * num_indirections_per_indirect_block) + (i * num_indirections_per_indirect_block * num_indirections_per_indirect_block);
 
         struct ktfs_indirect_block* dindirect_block;
-        int result = cache_get_block_by_index(ktfs->cache, inode->dindirect[i] + 4, (void**)&dindirect_block);
+        int result = cache_get_block_by_index(ktfs->cache, inode->dindirect[i] + 1 + ktfs->K + ktfs->B + ktfs->N, (void**)&dindirect_block);
         if (result != 0) {
             return result;
         }
