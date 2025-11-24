@@ -25,7 +25,7 @@
 
 #define CMNTNAME "c"
 #define DEVMNTNAME "dev"
-#define CDEVNAME "ramdisk"
+#define CDEVNAME "vioblk"
 #define CDEVINST 0
 
 #ifndef NUART // number of UARTs

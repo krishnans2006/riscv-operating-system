@@ -187,8 +187,9 @@ void cache_release_block(struct cache* cache, void* pblk, int dirty) {
     while(cur){
 
         if(cur->block == pblk){
-            
-            cur->dirty = dirty;
+            if (cur->dirty == 0 && dirty == 1){
+                cur->dirty = 1;
+            }
             cur->open = 0;
             condition_broadcast(&cur->cond);
             return;
