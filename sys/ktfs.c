@@ -620,6 +620,9 @@ static int ktfs_claim_inode(struct ktfs_fs* ktfs, uint16_t* inode_num_ptr) {
     // Read inode bitmap
     // Note: each block tracks KTFS_BLKSZ * 8 inodes (1 bit per inode)
 
+    unsigned long num_inodes = ktfs->K * (KTFS_BLKSZ / KTFS_INOSZ);
+    unsigned long num_inodes_processed = 0;
+
     for (int i = 1; i < 1 + inode_bitmap_block_count; i++) {
         struct ktfs_bitmap_block* bitmap_block;
         result = cache_get_block_by_index(ktfs->cache, i, (void**)&bitmap_block);
@@ -629,6 +632,14 @@ static int ktfs_claim_inode(struct ktfs_fs* ktfs, uint16_t* inode_num_ptr) {
         
         for (int byte_index = 0; byte_index < KTFS_BLKSZ; byte_index++) {
             for (int bit_index = 0; bit_index < 8; bit_index++) {
+                
+                // Are we out of inodes? (no more inode blocks left, even though bitmap is larger)
+                if (num_inodes_processed >= num_inodes) {
+                    cache_release_block(ktfs->cache, (void*)bitmap_block, 0);
+                    return -ENOINODEBLKS;
+                }
+                num_inodes_processed++;
+                
                 uint8_t mask = 1 << bit_index;
 
                 // Is the inode free?
