@@ -262,7 +262,7 @@ int sysprint(const char *msg) {
     if (result != 0)
         return result;
 
-    kprintf("Thread <%s:%d> says: %s\n", thread_name(running_thread()), running_thread(), msg);
+    kprintf("%s\n", msg);
     return 0;
 
 }
