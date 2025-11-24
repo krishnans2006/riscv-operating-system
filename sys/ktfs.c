@@ -163,10 +163,6 @@ static int get_root_inode(struct ktfs_fs* ktfs, struct ktfs_inode** root_inode_p
     uint16_t inode_block_offset = (root_inode_num * KTFS_INOSZ) / KTFS_BLKSZ;
     uint16_t inode_offset_within_block = root_inode_num % (KTFS_BLKSZ / KTFS_INOSZ);
 
-    ktfs->K = superblock->fields.inode_bitmap_block_count;
-    ktfs->B = superblock->fields.bitmap_block_count;
-    ktfs->N = superblock->fields.inode_block_count;
-
     cache_release_block(ktfs->cache, (void*)superblock, 0);
 
     struct ktfs_inode_block* inode_block;
@@ -1142,6 +1138,19 @@ int mount_ktfs(const char* name, struct cache* cache) {
     fs->cache = cache;
     fs->opened_files.head = NULL;
     fs->opened_files.tail = NULL;
+
+    // Read superblock
+    struct ktfs_superblock_block* superblock;
+    int result = cache_get_block_by_index(cache, 0, (void **)&superblock);
+    if (result != 0) {
+        return result;
+    }
+
+    fs->K = superblock->fields.inode_bitmap_block_count;
+    fs->B = superblock->fields.bitmap_block_count;
+    fs->N = superblock->fields.inode_block_count;
+
+    cache_release_block(cache, (void*)superblock, 0);
 
     return attach_filesystem(name, (struct filesystem*)fs);
 }
