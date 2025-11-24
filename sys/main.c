@@ -139,11 +139,7 @@ void run_init(void) {
         proc->uiotab[1] = console_uio;
     }
 
-    char* argv[2];
-    argv[0] = INITEXE;
-    argv[1] = NULL;
-
-    result = process_exec(initexe, 1, &argv);
+    result = process_exec(initexe, 0, NULL);
 
     kprintf("process_exec failed: %s\n", error_name(result));
     halt_failure();
