@@ -55,6 +55,8 @@ void main(void) {
 
     // Run testsuites
     run_testsuite_ktfs(CMNTNAME);
+
+    fsmgr_flushall();
 }
 
 void attach_devices(void) {

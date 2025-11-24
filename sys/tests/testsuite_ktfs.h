@@ -10,5 +10,6 @@ int test_many_small_reads(void);
 int test_multiblock_reads(void);
 int test_create(void);
 int test_create_write(void);
+int test_create_delete(void);
 
 #endif // _TESTSUITE_KTFS_H_

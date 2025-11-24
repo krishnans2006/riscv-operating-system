@@ -36,6 +36,10 @@ void run_testsuite_ktfs(const char* name) {
     kprintf("Run test_create_write:\n");
     retval = test_create_write();
     kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
+
+    kprintf("Run test_create_delete:\n");
+    retval = test_create_delete();
+    kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
 }
 
 int test_open() {
@@ -369,5 +373,43 @@ int test_create_write() {
     assert(strncmp(buffer, message, bytes_read) == 0);
 
     uio_close(uio);
+    return 0;
+}
+
+int test_create_delete() {
+    int result = delete_file("c", "file3.txt");
+    if (result == 0) {
+        kprintf("file3.txt already exists, deleted it first.\n");
+    }
+
+    result = create_file("c", "file3.txt");
+    if (result != 0) {
+        kprintf("create_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    struct uio* uio;
+    result = open_file("c", "file3.txt", &uio);
+    if (result != 0) {
+        kprintf("open_file failed: %s\n", error_name(result));
+        return result;
+    }
+    
+    uio_close(uio);
+
+    result = delete_file("c", "file3.txt");
+    if (result != 0) {
+        kprintf("delete_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    // Verify deletion
+    result = open_file("c", "file3.txt", &uio);
+    if (result == 0) {
+        kprintf("file3.txt still exists after deletion!\n");
+        uio_close(uio);
+        return -1;
+    }
+
     return 0;
 }
