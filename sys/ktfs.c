@@ -268,7 +268,7 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
     struct ktfs_dir_entry* dentry;
     struct ktfs_directory* dir_block;
     
-    for (uint32_t i = 0; i <= num_dentries; i++) {
+    for (uint32_t i = 0; i < num_dentries; i++) {
         // Get nth dentry
         result = ktfs_get_nth_dentry(ktfs, &root_inode, i, &dentry, &dir_block);
         if (result != 0) {
@@ -632,7 +632,7 @@ static int ktfs_claim_inode(struct ktfs_fs* ktfs, uint16_t* inode_num_ptr) {
         
         for (int byte_index = 0; byte_index < KTFS_BLKSZ; byte_index++) {
             for (int bit_index = 0; bit_index < 8; bit_index++) {
-                
+
                 // Are we out of inodes? (no more inode blocks left, even though bitmap is larger)
                 if (num_inodes_processed >= num_inodes) {
                     cache_release_block(ktfs->cache, (void*)bitmap_block, 0);
@@ -1407,7 +1407,7 @@ int ktfs_delete(struct filesystem* fs, const char* name) {
     int dentry_index;
     int found = 0;
     
-    for (uint32_t i = 0; i <= num_dentries; i++) {
+    for (uint32_t i = 0; i < num_dentries; i++) {
         // Get nth dentry
         result = ktfs_get_nth_dentry(ktfs, root_inode, i, &dentry, &dir_block);
         if (result != 0) {
