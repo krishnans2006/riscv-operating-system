@@ -135,8 +135,7 @@ void run_init(void) {
 
     struct process* proc = current_process();
     if (proc) {
-        //proc->uiotab[2] = console_uio;
-        proc->uiotab[1] = console_uio;
+        proc->uiotab[2] = console_uio;
     }
 
     result = process_exec(initexe, 0, NULL);
