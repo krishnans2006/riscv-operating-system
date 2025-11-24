@@ -22,7 +22,7 @@
 #include "uioimpl.h"
 #include "process.h"
 
-#define INITEXE "hello"  // FIXME
+#define INITEXE "trek"  // FIXME
 
 #define CMNTNAME "c"
 #define DEVMNTNAME "dev"
