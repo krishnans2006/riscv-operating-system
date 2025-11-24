@@ -299,13 +299,21 @@ int test_multiblock_reads() {
 }
 
 int test_create() {
-    int result = create_file("c", "file.txt");
+    struct uio* uio;
+
+    int result = open_file("c", "file.txt", &uio);
+    if (result == 0) {
+        kprintf("file.txt already exists!\n");
+        uio_close(uio);
+        return 0;
+    }
+
+    result = create_file("c", "file.txt");
     if (result != 0) {
         kprintf("create_file failed: %s\n", error_name(result));
         return result;
     }
 
-    struct uio* uio;
     result = open_file("c", "file.txt", &uio);
     if (result != 0) {
         kprintf("open_file failed: %s\n", error_name(result));
@@ -338,6 +346,27 @@ int test_create_write() {
         return -1;
     }
     assert(bytes_written == (long)strlen(message));
+    
+    uio_close(uio);
+
+    // Re-open and read back
+    result = open_file("c", "file2.txt", &uio);
+    if (result != 0) {
+        kprintf("open_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    char buffer[64];
+    long bytes_read = uio_read(uio, buffer, sizeof(buffer));
+    if (bytes_read < 0) {
+        kprintf("uio_read failed: %s\n", error_name(bytes_read));
+        uio_close(uio);
+        return -1;
+    }
+    assert(bytes_read == bytes_written);
+    buffer[bytes_read] = '\0';  // Null-terminate
+    kprintf("Contents of file2.txt: %s\n", buffer);
+    assert(strncmp(buffer, message, bytes_read) == 0);
 
     uio_close(uio);
     return 0;
