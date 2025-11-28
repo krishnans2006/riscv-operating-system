@@ -117,4 +117,25 @@ extern struct uio *create_null_uio(void);
 
 extern struct uio *create_memory_uio(void *buf, size_t size);
 
+/*
+Creates a unidirectional pipe.
+
+Allocates memory for the pipe struct and initializes all necessary parts for the pipe
+You will have to modify the passed in pointers to point to the relevant pipe io interfaces.
+For example, you will have to create a pipe write interface that will be referenced by the wioptr.
+For this we also have intentionally chosen to give you freedom with how your pipes implementation works internally.
+
+The following are additional details regarding implementation.
+You should use a simple buffer of PAGE_SIZE that you can allocate using your alloc_phys_page function
+We recommend head and tail pointers to keep track of read and write positions.
+This buffer is the channel in which we write based on the tail and read based on the head.
+You will also have to use condition variables to have the reader signal the writer and vice versa.
+This signaling has to be done on updates to the buffer so that the other can properly respond.
+This signaling is necessary because the reader and writer must sleep while they are waiting for the others actions.
+You should note that the reader should only be forced to wait if a writer exists, and a writer should only be forced to wait if a reader exists.
+When closing the reader or writer you should also free the buffer if it is possible (consider why it would not always be possible).
+This implementation facilitates one-way communication, allowing messages to be sent from one program to another, kind of like a mailbox.
+*/
+extern void create_pipe (struct uio **wptr, struct uio **rptr);
+
 #endif  // _UIO_H_

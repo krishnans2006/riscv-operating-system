@@ -287,10 +287,14 @@ int uart_serial_recv(struct serial * ser, void * buf, unsigned int bufsz) {
     // Enable DR and THRE interrupts
     uart->regs->ier |= IER_DRIE | IER_THREIE;
 
+    lock_acquire(&uart->lock);
+
     // Wait for the first character to arrive
     int pie = disable_interrupts();
     while (rbuf_empty(&uart->rxbuf)) {
+        lock_release(&uart->lock);
         condition_wait(&uart->rxbnotempty);
+        lock_acquire(&uart->lock);
     }
     restore_interrupts(pie);
 
@@ -298,6 +302,7 @@ int uart_serial_recv(struct serial * ser, void * buf, unsigned int bufsz) {
 
     for (unsigned int i = 0; i < bufsz; i++) {
         if (rbuf_empty(&uart->rxbuf)) {
+            lock_release(&uart->lock);
             return num_recvd;
         }
 
@@ -308,6 +313,8 @@ int uart_serial_recv(struct serial * ser, void * buf, unsigned int bufsz) {
         // Enable DR interrupts, since we just pulled a character from rxbuf (it's no longer full)
         uart->regs->ier |= IER_DRIE;
     }
+
+    lock_release(&uart->lock);
 
     return num_recvd;
 }
@@ -346,7 +353,9 @@ int uart_serial_send(struct serial * ser, const void * buf, unsigned int bufsz) 
     while (i < bufsz) {
         int pie = disable_interrupts();
         while (rbuf_full(&uart->txbuf)) {
+            lock_release(&uart->lock);
             condition_wait(&uart->txbnotfull);
+            lock_acquire(&uart->lock);
         }
         restore_interrupts(pie);
 
