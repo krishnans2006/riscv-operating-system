@@ -137,7 +137,50 @@ int process_exec(struct uio* exefile, int argc, char** argv) {
 
 int process_fork(const struct trap_frame* tfr) {
     // FIXME
-    return 0;
+    int tid = running_thread();
+
+    int i;
+    for(i = 0; i < NPROC; i++){
+        if(proctab[i] == NULL){
+            break;
+        } else if (i == NPROC - 1){
+            return -EMPROC;
+        }
+    }
+
+    int pid = i;
+    struct process * proc = kcalloc(1, sizeof(struct process));
+
+
+    proc->mtag = clone_active_mspace();
+    for(i = 0; i < PROCESS_UIOMAX; i ++){
+        if(proctab[tid]->uiotab[i] != NULL){
+
+            proc->uiotab[i] = proctab[tid]->uiotab[i];
+
+            uio_addref(proc->uiotab[i]);
+
+        }
+    }
+    proctab[pid] = proc;
+
+    struct trap_frame * child_tfr = kcalloc(1, sizeof(struct trap_frame));
+
+    *child_tfr = *tfr;
+
+    child_tfr->a0 = 0;
+    
+    struct condition * cond = kcalloc(1, sizeof(struct condition));
+
+    condition_init(cond, "fork process init");
+
+    int tid_child = spawn_thread("fork child", (void(*)(void))&fork_func, cond, child_tfr);
+
+    proc->tid = tid_child;
+    
+    condition_wait(cond);
+
+    return pid;
 }
 
 /** \brief
@@ -252,4 +295,10 @@ int build_stack(void* stack, int argc, char** argv) {
  */
 void fork_func(struct condition* done, struct trap_frame* tfr) {
     // FIXME
+    condition_broadcast(done);
+
+    void *sscratch_value = (char *)running_thread_stack_base() - sizeof(struct trap_frame);
+
+    trap_frame_jump(tfr, sscratch_value);
+    
 }
