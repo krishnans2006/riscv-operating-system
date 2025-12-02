@@ -22,7 +22,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-
+#include "process.h"
 #include "misc.h"
 #include "heap.h"
 #include "string.h"
@@ -654,7 +654,8 @@ struct thread * create_thread(const char * name) {
     thr = kcalloc(1, sizeof(struct thread));
     
     stack_size = 4000; // change to PAGE_SIZE in mp3
-    stack_lowest = kmalloc(stack_size);
+    stack_lowest = alloc_phys_page();
+    // kmalloc(stack_size);
     anchor = stack_lowest + stack_size;
     anchor -= 1; // anchor is at base of stack
     thr->stack_lowest = stack_lowest;
@@ -703,10 +704,15 @@ void running_thread_suspend(void) {
 
     set_thread_state(next, THREAD_SELF);
     struct thread * prev = _thread_swtch(next);
+    if(TP->proc != NULL){
+        switch_mspace(TP->proc->mtag);
+    }
+    
 
     if (prev->state == THREAD_EXITED) {
         // Free stack
-        kfree(prev->stack_lowest);
+        free_phys_page(prev->stack_lowest);
+        //kfree();
         
         // The thread struct will be reclaimed by the parent that spawned the thread
         // This happens in thread_join

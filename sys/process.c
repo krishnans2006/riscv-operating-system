@@ -177,6 +177,8 @@ int process_fork(const struct trap_frame* tfr) {
     int tid_child = spawn_thread("fork child", (void(*)(void))&fork_func, cond, child_tfr);
 
     proc->tid = tid_child;
+
+    thread_set_process(tid_child, proc);
     
     condition_wait(cond);
 
