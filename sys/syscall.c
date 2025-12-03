@@ -513,37 +513,52 @@ int sysfcntl(int fd, int cmd, void *arg) {
  */
 int syspipe(int *wfdptr, int *rfdptr) {
 
-    /*
+    
     struct process *proc = current_process();
 
-    struct uio *wptr = (struct uio*)wfdptr;
-    struct uio *rptr = (struct uio*)rfdptr;
+    struct uio *wptr;
+    struct uio *rptr;
 
     int i;
 
-    for ( i = 0; i < PROCESS_UIOMAX; i++) {
-        if (proc->uiotab[i] == wptr || proc->uiotab[i] == rptr) {
-                
-            return -EINVAL;
-        }
-    }
-
-    if( wfdptr < 0 ){
+    if( *wfdptr < 0 ){
         for ( i = 0; i < PROCESS_UIOMAX; i++) {
             if (proc->uiotab[i] == NULL) {
                 wptr = proc->uiotab[i];
+                continue;
+            } else if(i == PROCESS_UIOMAX){
+                return EBADFD;
             }
         }
-    } else if( rfdptr < 0 ){
+    }else {
+        if (proc->uiotab[*wfdptr] != NULL) {
+            return EBADFD;
+            
+        } else{
+            wptr = proc->uiotab[*wfdptr];
+        }
+    } 
+
+    if( *rfdptr < 0 ){
         for ( i = 0; i < PROCESS_UIOMAX; i++) {
             if (proc->uiotab[i] == NULL) {
                 rptr = proc->uiotab[i];
+                continue;
+            } else if(i == PROCESS_UIOMAX){
+                return EBADFD;
             }
+        }
+    } else{
+        if (proc->uiotab[*rfdptr] != NULL) {
+            return EBADFD;
+            
+        } else{
+            rptr = proc->uiotab[*rfdptr];
         }
     }
 
     create_pipe(&wptr, &rptr);
-    */
+    
 
     return 0;
     
