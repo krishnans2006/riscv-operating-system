@@ -13,6 +13,11 @@
 #define DEBUG
 #endif
 
+#define TIME_SLICE_MS      20
+#define TIME_SLICE_TICKS   ((TIMER_FREQ / 1000) * TIME_SLICE_MS)
+
+
+
 #include "timer.h"
 #include "thread.h"
 #include "riscv.h"
@@ -28,6 +33,9 @@
 
 char timer_initialized = 0;
 
+static uint64_t preempt_next;
+
+
 // INTERNVAL GLOBAL VARIABLE DEFINITIONS
 //
 
@@ -40,7 +48,14 @@ static struct alarm * sleep_list;
 //
 
 void timer_init(void) {
-    set_stcmp(UINT64_MAX);
+    uint64_t now = rdtime();
+
+    preempt_next = now + TIME_SLICE_TICKS;
+
+    set_stcmp(preempt_next);
+
+    csrs_sie(RISCV_SIE_STIE);
+    
     timer_initialized = 1;
 }
 
@@ -140,7 +155,7 @@ void alarm_sleep(struct alarm * al, unsigned long long tcnt) {
     }
 
     // Update mtimecmp
-    if (sleep_list == al) {
+    if (sleep_list == al && al->twake < preempt_next) {
         set_stcmp(al->twake);
     }
 
@@ -215,6 +230,12 @@ void handle_timer_interrupt(void) {
     trace("[%lu] %s()", now, __func__);
     debug("[%lu] mtcmp = %lu", now, rdtime());
 
+    if (preempt_next <= now) {
+        do {
+            preempt_next += TIME_SLICE_TICKS;
+        } while (preempt_next <= now);
+    }
+
     // Find all alarms that need to be woken up
     while (head != NULL && head->twake <= now) {
         head->twake = now;
@@ -225,10 +246,10 @@ void handle_timer_interrupt(void) {
     }
 
     sleep_list = head;
-    if (sleep_list != NULL) {
-        set_stcmp(sleep_list->twake);
-    } else {
-        // Disable timer interrupts
-        csrc_sie(RISCV_SIE_STIE);
+
+    uint64_t next_t = preempt_next;
+    if (sleep_list != NULL && sleep_list->twake < next_t) {
+        next_t = sleep_list->twake;
     }
+    set_stcmp(next_t);
 }
