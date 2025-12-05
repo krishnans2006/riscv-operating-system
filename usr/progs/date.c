@@ -8,7 +8,7 @@
 // which will return the time in nanoseconds since January 1st, 1970 GMT. You will need to convert
 // this value into a human-readable date and time format (for example, 05 Dec 2025 18:00:00). For
 // simplicity, you may ignore leap seconds and output the time in GMT. However, you should account
-// for leap years
+// for leap years.
 
 int is_leap_year(int year) {
     if (year % 100 == 0) {
