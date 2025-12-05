@@ -10,7 +10,7 @@ void main(int argc, char* argv[]) {
         return;
     }
 
-    const char* filename = argv[1];
+    char* filename = argv[1];
     int fd = _open(-1, filename);
     if (fd < 0) {
         _write(CONSOLEOUT, "Error: Unable to open file.\n", 28);

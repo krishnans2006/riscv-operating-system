@@ -11,7 +11,7 @@ void main(int argc, char* argv[]) {
         return;
     }
 
-    const char* directory = argv[1];
+    char* directory = argv[1];
     
     // Ignore leading and trailing slashes
     int start_index = 0;
