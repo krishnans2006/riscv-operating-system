@@ -3,7 +3,6 @@
 #include "syscall.h"
 #include <stdint.h>
 
-
 // A program that prints the current date and time to STDOUT. You will need to use the rtc device,
 // which will return the time in nanoseconds since January 1st, 1970 GMT. You will need to convert
 // this value into a human-readable date and time format (for example, 05 Dec 2025 18:00:00). For
