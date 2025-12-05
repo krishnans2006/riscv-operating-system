@@ -7,6 +7,12 @@
 #include "uio.h"
 #include <string.h>
 
+
+// Make sure to generate the filesystem image properly before running tests
+// For example, the below command (run from sys/ directory):
+// ../util/mkfs_ktfs ../sys/ktfs.raw 4M 16 ../usr/bin/hello ../usr/games/trek ../util/test.txt ../usr/games/zork ../usr/games/dtextc.dat && cp ../sys/ktfs.raw ../sys/blob.raw
+
+
 void run_testsuite_ktfs(const char* name) {
     kprintf("Running ktfs tests...\n");
 
@@ -39,6 +45,10 @@ void run_testsuite_ktfs(const char* name) {
 
     kprintf("Run test_create_delete:\n");
     retval = test_create_delete();
+    kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
+
+    kprintf("Run test_multiblock_writes:\n");
+    retval = test_multiblock_writes();
     kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
 
     kprintf("Run test_listing:\n");
@@ -418,6 +428,85 @@ int test_create_delete() {
     return 0;
 }
 
+int test_multiblock_writes() {
+    int result = create_file("c", "file4.txt");
+    if (result != 0) {
+        kprintf("create_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    struct uio* uio;
+    result = open_file("c", "file4.txt", &uio);
+    if (result != 0) {
+        kprintf("open_file failed: %s\n", error_name(result));
+        return result;
+    }
+
+    // Write 1602 bytes (> 3 blocks) a few times
+    char buffer[1602];
+    for (int i = 0; i < sizeof(buffer); i++) {
+        buffer[i] = '0' + (i % 10);
+    }
+
+    for (int iter = 0; iter < 4; iter++) {
+        long bytes_written = uio_write(uio, buffer, sizeof(buffer));
+        if (bytes_written < 0) {
+            kprintf("uio_write failed: %s\n", error_name(bytes_written));
+            uio_close(uio);
+            return -1;
+        }
+        assert(bytes_written == sizeof(buffer));
+    };
+
+    unsigned long len;
+    result = uio_cntl(uio, FCNTL_GETEND, &len);
+    if (result != 0) {
+        kprintf("uio_cntl FCNTL_GETEND failed: %s\n", error_name(result));
+        uio_close(uio);
+        return result;
+    }
+    assert(len == 4 * sizeof(buffer));
+
+    unsigned long pos;
+    result = uio_cntl(uio, FCNTL_GETPOS, &pos);
+    if (result != 0) {
+        kprintf("uio_cntl FCNTL_GETPOS failed: %s\n", error_name(result));
+        uio_close(uio);
+        return result;
+    }
+    assert(pos == 4 * sizeof(buffer));
+
+    uio_close(uio);
+
+    // Re-open and read back
+    result = open_file("c", "file4.txt", &uio);
+    if (result != 0) {
+        kprintf("open_file failed: %s\n", error_name(result));
+        return result;
+    }
+    char read_buffer[1602];
+    for (int iter = 0; iter < 4; iter++) {
+        long bytes_read = uio_read(uio, read_buffer, sizeof(read_buffer));
+        if (bytes_read < 0) {
+            kprintf("uio_read failed: %s\n", error_name(bytes_read));
+            uio_close(uio);
+            return -1;
+        }
+        assert(bytes_read == sizeof(read_buffer));
+
+        // Verify contents
+        for (long i = 0; i < bytes_read; i++) {
+            char expected_char = '0' + (i % 10);
+            assert(read_buffer[i] == expected_char);
+            kprintf("%c", read_buffer[i]);
+        }
+        kprintf("\n");
+    };
+
+    uio_close(uio);
+    return 0;
+}
+
 int test_listing() {
     struct uio* uio;
 
@@ -449,7 +538,7 @@ int test_listing() {
         num_files++;
     }
 
-    assert(num_files >= 5);  // At least hello, trek, test.txt, file.txt, file2.txt
+    assert(num_files >= 6);  // At least hello, trek, test.txt, file.txt, file2.txt, file4.txt
 
     uio_close(uio);
     return 0;
