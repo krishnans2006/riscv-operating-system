@@ -703,8 +703,13 @@ void running_thread_suspend(void) {
     restore_interrupts(pie);
 
     set_thread_state(next, THREAD_SELF);
+
+    if(next->proc != NULL){
+        switch_mspace(next->proc->mtag);
+    }
     struct thread * prev = _thread_swtch(next);
-    if(TP->proc != NULL){
+    
+    if (TP->proc != NULL) {
         switch_mspace(TP->proc->mtag);
     }
     

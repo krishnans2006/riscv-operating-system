@@ -182,7 +182,7 @@ int process_fork(const struct trap_frame* tfr) {
     
     condition_wait(cond);
 
-    return pid;
+    return tid_child;
 }
 
 /** \brief
