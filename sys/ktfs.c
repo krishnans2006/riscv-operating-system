@@ -82,6 +82,7 @@ struct ktfs_directory {
 };
 
 /// @brief File struct for a file in the Keegan Teal Filesystem
+/// If dir_entry.name is an empty string, this represents the listing
 struct ktfs_file {
     struct uio base;  // uio struct as base, to make this castable from struct uio*
     struct ktfs_dir_entry dir_entry;  // dentry
@@ -208,33 +209,48 @@ static int get_inode_from_dentry(struct ktfs_fs* ktfs, struct ktfs_dir_entry* de
 }
 
 static int ktfs_open_listing(struct ktfs_fs* ktfs, struct uio** uioptr) {
-    // Get root inode
-    struct ktfs_inode* root_inode;
+    // Is the listing already opened?
+    struct ktfs_file* opened_file = get_opened_file(&ktfs->opened_files, "");
+    if (opened_file != NULL) {
+        // Listing is busy
+        return -EBUSY;
+    }
+
+    // Get root inode copy
+    struct ktfs_inode* root_inode_orig;
     int root_inode_num;
     struct ktfs_inode_block* inode_block;
-    int result = get_root_inode(ktfs, &root_inode, &root_inode_num, &inode_block);
+    int result = get_root_inode(ktfs, &root_inode_orig, &root_inode_num, &inode_block);
     if (result != 0) {
         return result;
     }
+    struct ktfs_inode root_inode = *root_inode_orig;
+    cache_release_block(ktfs->cache, (void*)inode_block, 0);
 
-    // Convert to listing uio
+    // Create listing uio
     struct ktfs_file* listing = kcalloc(1, sizeof(struct ktfs_file));
     if (listing == NULL) {
-        cache_release_block(ktfs->cache, (void*)inode_block, 0);
         return -ENOMEM;
     }
 
-    listing->base.intf = &ktfs_listing_uio_intf;
+    uio_init1(&listing->base, &ktfs_listing_uio_intf);
+    
+    // We need to create a fake dentry for the listing
     listing->dir_entry.inode = root_inode_num;
-    strncpy(listing->dir_entry.name, "\\", KTFS_MAX_FILENAME_LEN);
-    listing->size = root_inode->size;
+    strncpy(listing->dir_entry.name, "", KTFS_MAX_FILENAME_LEN);
+
+    listing->size = root_inode.size;
     listing->pos = 0;
     listing->fs = ktfs;
 
-    cache_release_block(ktfs->cache, (void*)inode_block, 0);
+    // Add to opened files list
+    result = add_opened_file(&ktfs->opened_files, listing);
+    if (result != 0) {
+        kfree(listing);
+        return result;
+    }
 
     *uioptr = (struct uio*)listing;
-
     return 0;
 }
 
@@ -292,7 +308,6 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
 
             uio_init1(&file->base, &ktfs_file_uio_intf);
             file->dir_entry = *dentry;
-            strncpy(file->dir_entry.name, name, KTFS_MAX_FILENAME_LEN);
             file->size = file_inode.size;
             file->pos = 0;
             file->fs = ktfs;
@@ -1180,7 +1195,8 @@ int ktfs_open(struct filesystem* fs, const char* name, struct uio** uioptr) {
         return -EINVAL;
     }
 
-    if (strcmp(name, "\\") == 0) {
+    // Listing if name is NULL or ""
+    if (name == NULL || strcmp(name, "") == 0) {
         return ktfs_open_listing(ktfs, uioptr);
     } else {
         return ktfs_open_file(ktfs, name, uioptr);
@@ -1616,51 +1632,56 @@ void ktfs_flush(struct filesystem* fs) {
  */
 void ktfs_listing_close(struct uio* uio) {
     struct ktfs_file* listing = (struct ktfs_file*)uio;
-    
-    remove_opened_file(&listing->fs->opened_files, listing);
-    // kfree(listing);
+    struct ktfs_fs* ktfs = listing->fs;
+
+    remove_opened_file(&ktfs->opened_files, listing);
+    kfree(listing);
 }
 
 /**
- * @brief Reads all of the files names in the file system using ls and copies them into the
- * providied buffer
+ * @brief Reads the next file name from the listing into the provided buffer
  * @param uio The uio pointer of ls
- * @param buf The buffer to copy the file names to
+ * @param buf The buffer to copy the file name to
  * @param bufsz The size of the buffer
  * @return The size written to the buffer
  */
 long ktfs_listing_read(struct uio* uio, void* buf, unsigned long bufsz) {
     struct ktfs_file* listing = (struct ktfs_file*)uio;
+    struct ktfs_fs* ktfs = listing->fs;
 
-    // listing is guaranteed to be the ktfs_file representing the root directory
-    // Since it's returned in ktfs_open/ktfs_open_listing
-
-    int num_dentries = listing->size / KTFS_DENSZ;  // Must be exactly divisible
-
-    unsigned long bytes_copied = 0;
-
-    for (int i = 0; i < num_dentries; i++) {
-        // Get nth dentry
-        struct ktfs_dir_entry* dentry;
-        struct ktfs_directory* dir_block;
-        int result = ktfs_get_nth_dentry(listing->fs, NULL, i, &dentry, &dir_block);
-        if (result != 0) {
-            return result;
-        }
-
-        int filename_len = strlen(dentry->name);
-
-        if (bytes_copied + filename_len + 1 > bufsz) {
-            // Not enough space to copy this filename and null terminator
-            cache_release_block(listing->fs->cache, (void*)dir_block, 0);
-            return bytes_copied;
-        }
-
-        memcpy(&((uint8_t*)buf)[bytes_copied], dentry->name, filename_len);  // Includes null terminator
-        bytes_copied += filename_len;
-
-        cache_release_block(listing->fs->cache, (void*)dir_block, 0);
+    // This function is equivalent to reading the next KTFS_DENSZ bytes from the listing object
+    if (listing->pos >= listing->size) {
+        // End of listing
+        return 0;
     }
 
-    return bytes_copied;
+    unsigned long start_byte = listing->pos;
+    unsigned long end_byte = listing->pos + KTFS_DENSZ - 1;
+
+    // Get inode to read from
+    struct ktfs_inode inode_copy;
+    int result = get_inode_from_dentry(ktfs, &listing->dir_entry, &inode_copy);
+    if (result != 0) {
+        return result;
+    }
+
+    // Read data (the dentry)
+    char dentry_buf[KTFS_DENSZ];
+    result = ktfs_read_data(ktfs, &inode_copy, start_byte, end_byte, dentry_buf);
+    if (result != 0) {
+        return result;
+    }
+
+    // Copy to user buffer
+    // Note: the dentry contains the inode number (uint16_t) followed by the name
+    if (bufsz > KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)) {
+        bufsz = KTFS_MAX_FILENAME_LEN + sizeof(uint8_t);
+    }
+    strncpy((char*)buf, &dentry_buf[sizeof(uint16_t)], bufsz - 1);
+
+    // Null-terminate
+    ((char*)buf)[bufsz - 1] = '\0';
+
+    listing->pos += KTFS_DENSZ;
+    return bufsz;
 }
