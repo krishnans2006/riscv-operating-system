@@ -326,7 +326,7 @@ smode_trap_entry_from_umode_cont:
  
         slli    a0, a0, 1       
         srli    a0, a0, 1
-        j       handle_smode_interrupt            
+        j       handle_umode_interrupt            
 
 # void __attribute__ ((noreturn)) trap_frame_jump(struct trap_frame * tfr);
 
