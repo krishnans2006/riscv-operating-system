@@ -11,5 +11,6 @@ int test_multiblock_reads(void);
 int test_create(void);
 int test_create_write(void);
 int test_create_delete(void);
+int test_listing(void);
 
 #endif // _TESTSUITE_KTFS_H_

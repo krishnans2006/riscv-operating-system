@@ -40,6 +40,10 @@ void run_testsuite_ktfs(const char* name) {
     kprintf("Run test_create_delete:\n");
     retval = test_create_delete();
     kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
+
+    kprintf("Run test_listing:\n");
+    retval = test_listing();
+    kprintf("%s\n\n", (retval == 0) ? "Pass!" : "Fail!");
 }
 
 int test_open() {
@@ -411,5 +415,42 @@ int test_create_delete() {
         return -1;
     }
 
+    return 0;
+}
+
+int test_listing() {
+    struct uio* uio;
+
+    // Listings should open when the filename is NULL or empty string
+    int result = open_file("c", "", &uio);
+    if (result != 0) {
+        kprintf("open_file for listing failed: %s\n", error_name(result));
+        return result;
+    }
+
+    char buffer[15];
+    kprintf("Files in root directory:\n");
+    int num_files = 0;
+    while (1) {
+        // Should be null-terminated already
+        long bytes_read = uio_read(uio, buffer, sizeof(buffer));
+        
+        if (bytes_read < 0) {
+            kprintf("uio_read failed: %s\n", error_name(bytes_read));
+            uio_close(uio);
+            return -1;
+        }
+        if (bytes_read == 0) {
+            // End of listing
+            break;
+        }
+
+        kprintf("  %s\n", buffer);
+        num_files++;
+    }
+
+    assert(num_files >= 5);  // At least hello, trek, test.txt, file.txt, file2.txt
+
+    uio_close(uio);
     return 0;
 }
