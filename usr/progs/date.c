@@ -92,6 +92,4 @@ void main(int argc, char* argv[]) {
     }
 
     _write(STDOUT, buffer, (size_t)len);
-
-    return;
 }
