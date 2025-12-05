@@ -1674,8 +1674,9 @@ long ktfs_listing_read(struct uio* uio, void* buf, unsigned long bufsz) {
 
     // Copy to user buffer
     // Note: the dentry contains the inode number (uint16_t) followed by the name
-    if (bufsz > KTFS_MAX_FILENAME_LEN + sizeof(uint8_t)) {
-        bufsz = KTFS_MAX_FILENAME_LEN + sizeof(uint8_t);
+    uint8_t name_len = strlen(&dentry_buf[sizeof(uint16_t)]);
+    if (bufsz > name_len + sizeof(uint8_t)) {
+        bufsz = name_len + sizeof(uint8_t);
     }
     strncpy((char*)buf, &dentry_buf[sizeof(uint16_t)], bufsz - 1);
 

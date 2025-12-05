@@ -434,7 +434,7 @@ int test_listing() {
     while (1) {
         // Should be null-terminated already
         long bytes_read = uio_read(uio, buffer, sizeof(buffer));
-        
+
         if (bytes_read < 0) {
             kprintf("uio_read failed: %s\n", error_name(bytes_read));
             uio_close(uio);
@@ -445,7 +445,7 @@ int test_listing() {
             break;
         }
 
-        kprintf("  %s\n", buffer);
+        kprintf("  %s (%d)\n", buffer, bytes_read);
         num_files++;
     }
 
