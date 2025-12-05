@@ -1278,6 +1278,7 @@ long ktfs_store(struct uio* uio, const void* buf, unsigned long len) {
             cache_release_block(ktfs->cache, (void*)inode_block, 0);
             return result;
         }
+        file->size = inode->size;
     }
 
     unsigned long end_byte = file->pos + len - 1;
@@ -1576,6 +1577,9 @@ int ktfs_cntl(struct uio* uio, int cmd, void* arg) {
                 return result;
             }
         }
+
+        // Update file size in ktfs_file struct
+        file->size = new_size;
 
         cache_release_block(ktfs->cache, (void*)inode_block, 1);
     } else if (cmd == FCNTL_GETPOS) {
