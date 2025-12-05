@@ -201,6 +201,30 @@ int sysexit(void) {
 
 int sysexec(int fd, int argc, char **argv) { 
 
+    int result;
+
+    if (argc < 0) {
+        return -EINVAL;
+    }
+
+    /* Validate the argv vector itself as readable user memory */
+    if (argc > 0) {
+        void *start = (void *)((uintptr_t)argv & ~(PAGE_SIZE - 1));
+        uintptr_t end = (uintptr_t)argv + (size_t)argc * sizeof(char *) - 1;
+        size_t aligned_len = end - (uintptr_t)start + 1;
+        result = validate_vptr(argv, aligned_len, PTE_R | PTE_U);
+
+        if(result != 0 ) return result;
+    }
+
+    /* Validate each argv[i] as a NUL-terminated user string */
+    for (int i = 0; i < argc; i++) {
+        const char *arg = argv[i];
+        result = validate_vstr(arg, PTE_R | PTE_U);
+        if(result != 0 ) return result;
+    }
+
+
     struct process *proc = current_process();
 
     trace("%s(fd=%d, argc=%d, argv=%p)", __func__, fd, argc, argv);
@@ -212,7 +236,7 @@ int sysexec(int fd, int argc, char **argv) {
         return -EBADFD;
     }
 
-    int result = process_exec(current_process()->uiotab[fd], argc, argv);
+    result = process_exec(current_process()->uiotab[fd], argc, argv);
 
     uio_close(current_process()->uiotab[fd]);
 
@@ -303,6 +327,10 @@ int sysfscreate(const char *path) {
 
     trace("%s(path=%p)", __func__, path);
 
+    int result = validate_vstr(path, PTE_R | PTE_U);
+
+    if (result != 0) return result;
+
     int rc = copy_and_parse_path_from_user(path, &mpname, &flname, &kpath);
     if (rc != 0) {
         return rc;
@@ -335,6 +363,10 @@ int sysfsdelete(const char *path) {
     char *flname = NULL;
 
     trace("%s(path=%p)", __func__, path);
+
+    int result = validate_vstr(path, PTE_R | PTE_U);
+
+    if (result != 0) return result;
 
     int rc = copy_and_parse_path_from_user(path, &mpname, &flname, &kpath);
     if (rc != 0) {
@@ -370,6 +402,10 @@ int sysopen(int fd, const char *path) {
     struct uio *u = NULL;
 
     trace("%s(fd=%d, path=%p)", __func__, fd, path);
+
+    int result = validate_vstr(path, PTE_R | PTE_U);
+
+    if (result != 0) return result;
 
     // Copy and parse user path
     int rc = copy_and_parse_path_from_user(path, &mpname, &flname, &kpath);
@@ -446,10 +482,19 @@ int sysclose(int fd) {
  */
 
 long sysread(int fd, void *buf, size_t bufsz) { 
+    void *start = (void *)((uintptr_t)buf & ~(PAGE_SIZE - 1));
+    uintptr_t end = (uintptr_t)buf + bufsz - 1;
+    size_t aligned_len = end - (uintptr_t)start + 1;
+
+    int result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
+
+    if (result != 0) return result;
+
+    
     struct process *proc = current_process();
 
     if(proc->uiotab[fd] != NULL){
-        int result = uio_read(proc->uiotab[fd], buf, bufsz);
+        result = uio_read(proc->uiotab[fd], buf, bufsz);
         return result;
     } else {
         return -EINVAL;
@@ -467,11 +512,20 @@ long sysread(int fd, void *buf, size_t bufsz) {
  * @return number of bytes written
  */
 
-long syswrite(int fd, const void *buf, size_t len) { 
+long syswrite(int fd, const void *buf, size_t len) {
+    void *start = (void *)((uintptr_t)buf & ~(PAGE_SIZE - 1));
+    uintptr_t end = (uintptr_t)buf + len - 1;
+    size_t aligned_len = end - (uintptr_t)start + 1;
+
+    int result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
+
+    if (result != 0) return result;
+
+
     struct process *proc = current_process();
 
     if(proc->uiotab[fd] != NULL){
-        int result = uio_write(proc->uiotab[fd], buf, len);
+        result = uio_write(proc->uiotab[fd], buf, len);
         return result;
     } else {
         return -EINVAL;
@@ -492,12 +546,49 @@ long syswrite(int fd, const void *buf, size_t len) {
 int sysfcntl(int fd, int cmd, void *arg) { 
     struct process *proc = current_process();
 
-    if(proc->uiotab[fd] != NULL){
-        int result = uio_cntl(proc->uiotab[fd], cmd, arg);
-        return result;
-    } else {
+     if (fd < 0 || fd >= PROCESS_UIOMAX) {
         return -EINVAL;
     }
+
+    switch (cmd) {
+    case FCNTL_GETEND:   // arg is unsigned long long *
+    case FCNTL_GETPOS: { 
+        void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
+        uintptr_t end = (uintptr_t)arg + sizeof(unsigned long long) - 1;
+        size_t aligned_len = end - (uintptr_t)start + 1;
+
+        int rc = validate_vptr(start, aligned_len, PTE_W | PTE_U);
+        if (rc != 0) return rc;
+        break;
+    }
+
+    case FCNTL_SETEND:   // arg is unsigned long long *
+    case FCNTL_SETPOS: { 
+        void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
+        uintptr_t end = (uintptr_t)arg + sizeof(unsigned long long) - 1;
+        size_t aligned_len = end - (uintptr_t)start + 1;
+
+        int rc = validate_vptr(start, aligned_len, PTE_R | PTE_U);
+        if (rc != 0) return rc;
+        break;
+    }
+
+    case FCNTL_MMAP: {   // arg is void ** (kernel writes mapping pointer)
+        void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
+        uintptr_t end = (uintptr_t)arg + sizeof(void *) - 1;
+        size_t aligned_len = end - (uintptr_t)start + 1;
+
+        int rc = validate_vptr(start, aligned_len, PTE_W | PTE_U);
+        if (rc != 0) return rc;
+        break;
+    }
+
+    default:
+        return -EINVAL;  // unknown command
+    }
+
+    return uio_cntl(proc->uiotab[fd], cmd, arg);
+
 
  }
 
@@ -512,6 +603,21 @@ int sysfcntl(int fd, int cmd, void *arg) {
  * descriptor is already in use, or if no descriptors are found available.
  */
 int syspipe(int *wfdptr, int *rfdptr) {
+    void *start = (void *)((uintptr_t)wfdptr & ~(PAGE_SIZE - 1));
+    uintptr_t end = (uintptr_t)wfdptr + sizeof(int) - 1;
+    size_t aligned_len = end - (uintptr_t)start + 1;
+
+    int result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
+
+    if (result != 0) return result;
+
+    start = (void *)((uintptr_t)rfdptr & ~(PAGE_SIZE - 1));
+    end = (uintptr_t)rfdptr + sizeof(int) - 1;
+    aligned_len = end - (uintptr_t)start + 1;
+
+    result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
+
+    if (result != 0) return result;
 
     
     struct process *proc = current_process();
