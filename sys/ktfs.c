@@ -252,8 +252,7 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
     struct ktfs_inode* root_inode_orig;
     int root_inode_num;
     struct ktfs_inode_block* inode_block;
-    int result =
-        get_root_inode(ktfs, &root_inode_orig, &root_inode_num, &inode_block);
+    int result = get_root_inode(ktfs, &root_inode_orig, &root_inode_num, &inode_block);
     if (result != 0) {
         return result;
     }
@@ -291,7 +290,7 @@ static int ktfs_open_file(struct ktfs_fs* ktfs, const char* name, struct uio** u
                 return -ENOMEM;
             }
 
-            file->base.intf = &ktfs_file_uio_intf;
+            uio_init1(&file->base, &ktfs_file_uio_intf);
             file->dir_entry = *dentry;
             strncpy(file->dir_entry.name, name, KTFS_MAX_FILENAME_LEN);
             file->size = file_inode.size;
