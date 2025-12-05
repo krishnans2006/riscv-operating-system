@@ -378,7 +378,6 @@ int sysopen(int fd, const char *path) {
     }
 
     rc = open_file(mpname, flname, &u);
-    uio_addref(u);
     if (rc != 0) {
         kfree(kpath);
         return rc;
@@ -599,7 +598,5 @@ int sysuiodup(int oldfd, int newfd) {
             return newfd;
         }
         return -EINVAL;
-    }
-
-    
- }
+    }    
+}
