@@ -33,7 +33,7 @@ void main(int argc, char* argv[]) {
 
     int fd = _open(-1, "dev/rtc");
     if (fd < 0) {
-        _print("Error: Unable to open RTC device.\n");
+        _write(CONSOLEOUT, "Error: Unable to open RTC device.\n", 34);
         return;
     }
 
@@ -42,7 +42,7 @@ void main(int argc, char* argv[]) {
 
     long bytes_read = _read(fd, &time_ns, sizeof(uint64_t));
     if (bytes_read != sizeof(uint64_t)) {
-        _print("Error: Unable to read time from RTC device.\n");
+        _write(CONSOLEOUT, "Error: Unable to read time from RTC device.\n", 44);
         _close(fd);
         return;
     }
@@ -87,7 +87,7 @@ void main(int argc, char* argv[]) {
         day, month_names[month], year, hour, minute, second
     );
     if (len <= 0) {
-        _print("Error: Unable to format date and time.\n");
+        _write(CONSOLEOUT, "Error: Unable to format string.\n", 32);
         return;
     }
 
