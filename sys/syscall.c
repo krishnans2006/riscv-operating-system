@@ -608,7 +608,6 @@ int syspipe(int *wfdptr, int *rfdptr) {
     size_t aligned_len = end - (uintptr_t)start + 1;
 
     int result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
-
     if (result != 0) return result;
 
     start = (void *)((uintptr_t)rfdptr & ~(PAGE_SIZE - 1));
@@ -616,59 +615,59 @@ int syspipe(int *wfdptr, int *rfdptr) {
     aligned_len = end - (uintptr_t)start + 1;
 
     result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
-
     if (result != 0) return result;
 
+    // validate inputs
+    result = validate_vptr(wfdptr, sizeof(int), PTE_U | PTE_W);
+    if (result != 0) return result;
+    result = validate_vptr(rfdptr, sizeof(int), PTE_U | PTE_W);
+    if (result != 0) return result;
     
     struct process *proc = current_process();
-
-    struct uio *wptr;
-    struct uio *rptr;
-
     int i;
 
-    if( *wfdptr < 0 ){
+    if(*wfdptr < 0){
+        // find unused
         for ( i = 0; i < PROCESS_UIOMAX; i++) {
             if (proc->uiotab[i] == NULL) {
-                wptr = proc->uiotab[i];
-                continue;
-            } else if(i == PROCESS_UIOMAX){
-                return EBADFD;
+                *wfdptr = i;
+                break;
+            } else if (i == PROCESS_UIOMAX - 1){
+                return -EMFILE;
             }
         }
-    }else {
-        if (proc->uiotab[*wfdptr] != NULL) {
-            return EBADFD;
-            
-        } else{
-            wptr = proc->uiotab[*wfdptr];
-        }
-    } 
-
-    if( *rfdptr < 0 ){
-        for ( i = 0; i < PROCESS_UIOMAX; i++) {
-            if (proc->uiotab[i] == NULL) {
-                rptr = proc->uiotab[i];
-                continue;
-            } else if(i == PROCESS_UIOMAX){
-                return EBADFD;
-            }
-        }
-    } else{
-        if (proc->uiotab[*rfdptr] != NULL) {
-            return EBADFD;
-            
-        } else{
-            rptr = proc->uiotab[*rfdptr];
+    } else {
+        if (*wfdptr >= PROCESS_UIOMAX || proc->uiotab[*wfdptr] != NULL) {
+            return -EBADFD;
         }
     }
 
-    create_pipe(&wptr, &rptr);
+    if( *rfdptr < 0 ){
+        // find unused
+        for ( i = 0; i < PROCESS_UIOMAX; i++) {
+            if (proc->uiotab[i] == NULL && i != *wfdptr) {
+                *rfdptr = i;
+                break;
+            } else if(i == PROCESS_UIOMAX - 1){
+                return -EMFILE;
+            }
+        }
+    } else {
+        if (*rfdptr >= PROCESS_UIOMAX || proc->uiotab[*rfdptr] != NULL || *rfdptr == *wfdptr) {
+            return -EBADFD;
+        }
+    }
+
+    struct uio *wuio = NULL;
+    struct uio *ruio = NULL;
+    create_pipe(&wuio, &ruio);
+
+    if (wuio == NULL || ruio == NULL) return -ENOMEM;
     
+    proc->uiotab[*wfdptr] = wuio;
+    proc->uiotab[*rfdptr] = ruio;
 
     return 0;
-    
-
 }
 
 /**

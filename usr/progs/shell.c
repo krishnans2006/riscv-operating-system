@@ -24,60 +24,88 @@ char* find_terminator(char* buf) {
 	return p;
 }
 
-int parse(char* buf, char** argv) {
+int parse(char* buf, char* argv[][MAXARGS + 1], int* argc, char** input_file, char** output_file) {
 	// FIXME
 	// feel free to change this function however you see fit
 
-	int argc = 0;
-	char temp;
-	char *head, *end;
+	int pn = 0; // program number, highest level index into argv and argc
+
+	argc[0] = 0;
+	*input_file = NULL;
+    *output_file = NULL;
+
+	char *head;
 	head = buf;
 
-	for(;;) { // find each argv
+	while(*head) { // find each argv
+		// skip spaces
 		while(*head == ' ') head++;
-		argv[argc++] = head;
-		end = find_terminator(head);
+		if (*head == '\0') break;
 
-		// inner loop handles all file redirection
-		// it may be redirected multiple times
-		for(;;) {
-			temp = *end;
-			*end = '\0';
-			switch(temp) {
-				case ' ':
-					while(*(++head) == ' ') ;
-					continue;
+		switch(*head) {
+			// end of buf
+			case '\0':
+				break;
 
-				case '\0':
-					return argc;
+			// > output to file
+			case FOUT:
+				head++; 						// step over >
+				while(*head == ' ') head++; 	// step over spaces to reach the start of the output file
+				*output_file = head;				// set the output file
+				head = find_terminator(head);	// get to the end of the output file name
+				if (*head) {
+					*head = '\0';
+					head++;
+				}
+				continue;
 
-				case FOUT:
-					// FIXME
-					continue;
-					
-				case FIN:
-					// FIXME
-					continue;
+			// < input to file
+			case FIN:
+				head++;							// step over <
+				while(*head == ' ') head++; 	// step over spaces to reach  the start of the input file
+				*input_file = head;				// set the input file
+				head = find_terminator(head);	// get to the end of the input file name
+				if (*head) {
+					*head = '\0';
+					head++;
+				}
+				continue;
 
-				case PIPE:
-					// FIXME
-					break;
+			// | pipe
+			case PIPE:
+				head++;						// step over |
+				argv[pn][argc[pn]] = NULL;	// null-terminate the current argv
+				pn++;						// increment program number
+				*(argc + pn) = 0;
+				continue;
 
-				default:
-					*head = temp;
-					break;
-			}
-			break;
+			default:	
+				// regular argument to store
+				argv[pn][argc[pn]++] = head;
+				head = find_terminator(head);
+				if (*head) {
+					*head = '\0';
+					head++;
+				}
 		}
-
 	}
+
+	// reach the '\0' at the end
+
+	argv[pn][argc[pn]] = NULL; // null-terminate the current argv
+	return pn + 1; 			   // returns the number of program commands
 }
 
 int main()
 {
     char buf[BUFSIZE];
-	int argc;
-	char* argv[MAXARGS + 1]; 
+	int argc[MAXARGS]; // array of ints, each int is arg count for one of a separate piped program
+	char* argv[MAXARGS][MAXARGS + 1]; // array of array of string args, each array of string args corresponds to a separate piped program
+	char* input_file;
+	char* output_file;
+	int wfd, rfd, rfd_next;
+	int pids[MAXARGS];
+
 
   	_open(CONSOLEOUT, "dev/uart1");		// console device
 	_close(STDIN);              		// close any existing stdin
@@ -96,6 +124,109 @@ int main()
 		_exit();
 
 		// FIXME
-		// Call your parse function and exec the user input
+		// (1) Call parse and terminate each argv with NULL
+		int num = parse(buf, argv, argc, &input_file, &output_file);
+
+		// skip if one of the programs has no args
+		int no_args = 0;
+		for (int pn = 0; pn < num; pn++) {
+			if (argc[pn] == 0) { no_args = 1; break; }
+		}
+		if (no_args) {dprintf(CONSOLEOUT, "Error: program has no args\n"); continue; }
+
+
+		// (2) loop over each piped program
+		wfd = -1; rfd = -1; rfd_next = -1; // reset pipe ptrs
+
+		for (int pn = 0; pn < num; pn++) {
+			// (a) get the path of the program
+			char path[BUFSIZE];
+			if (strchr(argv[pn][0], '/') == NULL) {
+				// prepend c/
+				snprintf(path, BUFSIZE, "c/%s", argv[pn][0]);
+			} else {
+				strncpy(path, argv[pn][0], BUFSIZE);
+			}
+
+			// (b) open the program file
+			int fd = _open(-1, path);
+			if (fd < 0) {
+				// failed to open program file
+				dprintf(CONSOLEOUT, "Error: %s not found\n", path);
+				break;
+			}
+
+			// (c-i) get the read-pipe from the previous program, reset other pipes
+			rfd = rfd_next;
+			rfd_next = -1;
+			wfd = -1;
+
+			// (c-ii) create outputing pipe, which happens when it's not the last program in the pipeline
+			if (pn < num - 1) {
+				if (_pipe(&wfd, &rfd_next) < 0) {
+					dprintf(CONSOLEOUT, "Error: create pipe failed\n");
+					break;
+				}
+			}
+
+			// (d) fork and exec
+			int pid = _fork();
+			pids[pn] = pid;
+			if (pid == 0) {
+				// CHILD process
+				// (i) input redirection
+				if (input_file != NULL && pn == 0) {
+					_close(STDIN);
+					if (_open(STDIN, input_file) < 0) {
+						dprintf(CONSOLEOUT, "Error: can't open %s\n", input_file);
+						_exit();
+					}
+				}
+				// (ii) output redirection
+				if (output_file != NULL && pn == num - 1) {
+					_fscreate(output_file);
+					_close(STDOUT);
+					if (_open(STDOUT, output_file) < 0) {
+						dprintf(CONSOLEOUT, "Error: can't open %s\n", output_file);
+						_exit();
+					}
+				}
+				// (iii) connect output pipe, which happens when it's not the last program
+				if (pn < num - 1) {
+					_close(STDOUT);
+					_uiodup(wfd, STDOUT);
+				}
+				// (iv) connect input pipe, which happens when it's not the first program
+				if (pn > 0) {
+					_close(STDIN);
+					_uiodup(rfd, STDIN);
+				}
+
+				// (v) close pipe descriptor files
+				if (wfd >= 0) _close(wfd);
+				if (rfd >= 0) _close(rfd);
+				if (rfd_next >= 0) _close(rfd_next);
+
+				// (vi) finally exec
+				_exec(fd, argc[pn], argv[pn]);
+				// unsuccessful exec
+				dprintf(CONSOLEOUT, "Error: _exec failed\n");
+				_exit();
+			}
+
+			// close file descriptors
+			_close(fd);
+			if (pn < num - 1) {
+				_close(wfd);
+			}
+			if (pn > 0) {
+				_close(rfd);
+			}
+		}
+
+		// wait for all children process
+		for (int pn = 0; pn < num; pn++) {
+			_wait(pids[pn]);
+		}
 	}
 }
