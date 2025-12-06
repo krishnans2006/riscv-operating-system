@@ -6,8 +6,10 @@
 // "/" for root) to STDOUT, one per line.
 
 void main(int argc, char* argv[]) {
+    // "" = list mountpoints
     if (argc < 2) {
-        dprintf(CONSOLEOUT, "Usage: ls <directory>\n");
+        dprintf(STDOUT, "c\n");
+        dprintf(STDOUT, "dev\n");
         return;
     }
 
@@ -27,7 +29,7 @@ void main(int argc, char* argv[]) {
     strncpy(dir_name, &directory[start_index], dir_len);
     dir_name[dir_len] = '\0';
 
-    // "" = list mountpoints
+    // "" = list mountpoints (extra check)
     if (strcmp(dir_name, "") == 0) {
         dprintf(STDOUT, "c\n");
         dprintf(STDOUT, "dev\n");
