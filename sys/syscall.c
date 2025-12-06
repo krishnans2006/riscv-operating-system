@@ -301,8 +301,6 @@ int sysprint(const char *msg) {
  */
 
 int sysusleep(unsigned long us) { 
-    if(us < 0) return -EINVAL;
-
     struct alarm alarm;
     alarm_init(&alarm, "usleep");
 
@@ -419,7 +417,7 @@ int sysopen(int fd, const char *path) {
         return rc;
     }
 
-    if (fd ==  -1) {
+    if (fd == -1) {
         for ( int i = 0; i < PROCESS_UIOMAX; i++) {
             if (proc->uiotab[i] == NULL) {
                 
@@ -428,12 +426,15 @@ int sysopen(int fd, const char *path) {
                 return i;
             }
         }
-    
+        // no slot found
+        uio_close(u);
+        kfree(kpath);
+        return -EMFILE;
     } else if (fd < -1){
         uio_close(u);
         kfree(kpath);
         return -EBADFD;
-    }else {
+    } else {
         if (fd >= PROCESS_UIOMAX) {
             uio_close(u);
             kfree(kpath);
@@ -450,7 +451,6 @@ int sysopen(int fd, const char *path) {
 
     kfree(kpath);
     return fd;
-
 }
 
 /**
@@ -463,8 +463,13 @@ int sysopen(int fd, const char *path) {
 int sysclose(int fd) { 
     struct process *proc = current_process();
 
+    if (fd < 0 || fd >= PROCESS_UIOMAX) {
+        return -EBADFD;
+    }
+
     if(proc->uiotab[fd] != NULL){
         uio_close(proc->uiotab[fd]);
+        proc->uiotab[fd] = NULL;
         return 0;
     } else {
         return -EINVAL;
@@ -487,9 +492,11 @@ long sysread(int fd, void *buf, size_t bufsz) {
     size_t aligned_len = end - (uintptr_t)start + 1;
 
     int result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
-
     if (result != 0) return result;
 
+    if (fd < 0 || fd >= PROCESS_UIOMAX) {
+        return -EBADFD;
+    }
     
     struct process *proc = current_process();
 
@@ -518,9 +525,11 @@ long syswrite(int fd, const void *buf, size_t len) {
     size_t aligned_len = end - (uintptr_t)start + 1;
 
     int result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
-
     if (result != 0) return result;
 
+    if (fd < 0 || fd >= PROCESS_UIOMAX) {
+        return -EBADFD;
+    }
 
     struct process *proc = current_process();
 
@@ -682,6 +691,17 @@ int syspipe(int *wfdptr, int *rfdptr) {
 
 int sysuiodup(int oldfd, int newfd) { 
     struct process *proc = current_process();
+
+    if (oldfd < 0 || oldfd >= PROCESS_UIOMAX) {
+        return -EBADFD;
+    }
+    if (proc->uiotab[oldfd] == NULL) {
+        return -EBADFD;
+    }
+
+    if (newfd >= PROCESS_UIOMAX) {
+        return -EBADFD;
+    }
 
     if(newfd < 0){
         for ( int i = 0; i < PROCESS_UIOMAX; i++) {
