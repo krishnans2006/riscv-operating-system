@@ -79,19 +79,7 @@ void main(int argc, char* argv[]) {
 
     char* month_names[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
-    char buffer[64];
-    size_t len = snprintf(
-        buffer,
-        sizeof(buffer),
-        "%02d %s %04d %02d:%02d:%02d\n",
-        day, month_names[month], year, hour, minute, second
-    );
-    if (len <= 0) {
-        dprintf(CONSOLEOUT, "Error: Unable to format string.\n");
-        return;
-    }
-
-    _write(STDOUT, buffer, (size_t)len);
+    dprintf(STDOUT, "%02d %s %04d %02d:%02d:%02d\n", day, month_names[month], year, hour, minute, second);
 
     return;
 }
