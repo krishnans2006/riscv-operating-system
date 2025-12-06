@@ -6,7 +6,7 @@
 
 void main(int argc, char* argv[]) {
     if (argc < 2) {
-        _write(CONSOLEOUT, "Usage: touch <filename1> <filename2> ...\n", 41);
+        dprintf(CONSOLEOUT, "Usage: touch <filename1> <filename2> ...\n", 41);
         return;
     }
 
@@ -14,7 +14,7 @@ void main(int argc, char* argv[]) {
         char* filename = argv[i];
         int result = _fscreate(filename);
         if (result < 0) {
-            _write(CONSOLEOUT, "Error: Unable to create a file.\n", 32);
+            dprintf(CONSOLEOUT, "Error: Unable to create a file.\n", 32);
         }
     }
 }

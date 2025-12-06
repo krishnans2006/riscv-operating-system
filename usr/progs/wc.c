@@ -15,7 +15,7 @@ void main(int argc, char* argv[]) {
         char* filename = argv[1];
         fd = _open(-1, filename);
         if (fd < 0) {
-            _write(CONSOLEOUT, "Error: Unable to open file.\n", 28);
+            dprintf(CONSOLEOUT, "Error: Unable to open file.\n", 28);
             return;
         }
     }
@@ -30,7 +30,7 @@ void main(int argc, char* argv[]) {
     while (1) {
         bytes_read = _read(fd, &buffer, 1);
         if (bytes_read < 0) {
-            _write(CONSOLEOUT, "Error: Unable to read file.\n", 28);
+            dprintf(CONSOLEOUT, "Error: Unable to read file.\n", 28);
             _close(fd);
             return;
         }
@@ -66,5 +66,5 @@ void main(int argc, char* argv[]) {
     char output_buffer[64];
     int output_length = snprintf(output_buffer, sizeof(output_buffer), "%lu\t%lu\t%lu\n", line_count, word_count, byte_count);
     
-    _write(STDOUT, output_buffer, output_length);
+    dprintf(STDOUT, output_buffer, output_length);
 }

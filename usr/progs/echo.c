@@ -10,9 +10,9 @@ void main(int argc, char* argv[]) {
     // Ignore argv[0] (the program name)
     for (int i = 1; i < argc; i++) {
         if (i > 1) {
-            _write(STDOUT, " ", 1);
+            dprintf(STDOUT, " ", 1);
         }
-        _write(STDOUT, argv[i], strlen(argv[i]));
+        dprintf(STDOUT, argv[i], strlen(argv[i]));
     }
-    _write(STDOUT, "\n", 1);
+    dprintf(STDOUT, "\n", 1);
 }

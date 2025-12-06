@@ -36,7 +36,7 @@ int parse(char* buf, char* argv[][MAXARGS + 1], int* argc, char** input_file, ch
 
 	char *head;
 	head = buf;
-
+	
 	while(*head) { // find each argv
 		// skip spaces
 		while(*head == ' ') head++;
@@ -132,7 +132,7 @@ int main()
 		for (int pn = 0; pn < num; pn++) {
 			if (argc[pn] == 0) { no_args = 1; break; }
 		}
-		if (no_args) {dprintf(CONSOLEOUT, "Error: program has no args\n"); continue; }
+		if (no_args) { continue; }
 
 
 		// (2) loop over each piped program
@@ -152,7 +152,7 @@ int main()
 			int fd = _open(-1, path);
 			if (fd < 0) {
 				// failed to open program file
-				dprintf(CONSOLEOUT, "Error: %s not found\n", path);
+				dprintf(CONSOLEOUT, "Failed to find %s\r", path);
 				break;
 			}
 
@@ -164,7 +164,7 @@ int main()
 			// (c-ii) create outputing pipe, which happens when it's not the last program in the pipeline
 			if (pn < num - 1) {
 				if (_pipe(&wfd, &rfd_next) < 0) {
-					dprintf(CONSOLEOUT, "Error: create pipe failed\n");
+					dprintf(CONSOLEOUT, "Failed to create pipe\r");
 					break;
 				}
 			}
@@ -178,7 +178,7 @@ int main()
 				if (input_file != NULL && pn == 0) {
 					_close(STDIN);
 					if (_open(STDIN, input_file) < 0) {
-						dprintf(CONSOLEOUT, "Error: can't open %s\n", input_file);
+						dprintf(CONSOLEOUT, "Failed to open %s\r", input_file);
 						_exit();
 					}
 				}
@@ -187,7 +187,7 @@ int main()
 					_fscreate(output_file);
 					_close(STDOUT);
 					if (_open(STDOUT, output_file) < 0) {
-						dprintf(CONSOLEOUT, "Error: can't open %s\n", output_file);
+						dprintf(CONSOLEOUT, "Failed to open %s\r", output_file);
 						_exit();
 					}
 				}
@@ -208,9 +208,9 @@ int main()
 				if (rfd_next >= 0) _close(rfd_next);
 
 				// (vi) finally exec
-				_exec(fd, argc[pn], argv[pn]);
+				int result = _exec(fd, argc[pn], argv[pn]);
 				// unsuccessful exec
-				dprintf(CONSOLEOUT, "Error: _exec failed\n");
+				dprintf(CONSOLEOUT, "Failed to exec file (Error Code: %d)\r", result, fd, argc[pn]);
 				_exit();
 			}
 
