@@ -105,6 +105,7 @@ int main()
 	char* output_file;
 	int wfd, rfd, rfd_next;
 	int pids[MAXARGS];
+	int result; // for storing error codes
 
 
   	_open(CONSOLEOUT, "dev/uart1");		// console device
@@ -152,7 +153,7 @@ int main()
 			int fd = _open(-1, path);
 			if (fd < 0) {
 				// failed to open program file
-				dprintf(CONSOLEOUT, "Failed to find %s\r", path);
+				dprintf(CONSOLEOUT, "Failed to find %s (Error Code: %d)\r", path, fd);
 				break;
 			}
 
@@ -163,7 +164,7 @@ int main()
 
 			// (c-ii) create outputing pipe, which happens when it's not the last program in the pipeline
 			if (pn < num - 1) {
-				int result = _pipe(&wfd, &rfd_next);
+				result = _pipe(&wfd, &rfd_next);
 				if (result < 0) {
 					dprintf(CONSOLEOUT, "Failed to create pipe (Error Code: %d)\r", result);
 					break;
@@ -178,8 +179,9 @@ int main()
 				// (i) input redirection
 				if (input_file != NULL && pn == 0) {
 					_close(STDIN);
-					if (_open(STDIN, input_file) < 0) {
-						dprintf(CONSOLEOUT, "Failed to open %s\r", input_file);
+					result = _open(STDIN, input_file);
+					if (result < 0) {
+						dprintf(CONSOLEOUT, "Failed to open %s (Error Code: %d)\r", input_file, result);
 						_exit();
 					}
 				}
@@ -187,8 +189,9 @@ int main()
 				if (output_file != NULL && pn == num - 1) {
 					_fscreate(output_file);
 					_close(STDOUT);
-					if (_open(STDOUT, output_file) < 0) {
-						dprintf(CONSOLEOUT, "Failed to open %s\r", output_file);
+					result = _open(STDOUT, output_file);
+					if (result < 0) {
+						dprintf(CONSOLEOUT, "Failed to open %s (Error Code: %d)\r", output_file, result);
 						_exit();
 					}
 				}
@@ -209,7 +212,7 @@ int main()
 				if (rfd_next >= 0) _close(rfd_next);
 
 				// (vi) finally exec
-				int result = _exec(fd, argc[pn], argv[pn]);
+				result = _exec(fd, argc[pn], argv[pn]);
 				// unsuccessful exec
 				dprintf(CONSOLEOUT, "Failed to exec file (Error Code: %d)\r", result, fd, argc[pn]);
 				_exit();
@@ -223,10 +226,7 @@ int main()
 			if (pn > 0) {
 				_close(rfd);
 			}
-		}
-
-		// wait for all children process
-		for (int pn = 0; pn < num; pn++) {
+			// wait for children process
 			_wait(pids[pn]);
 		}
 	}
