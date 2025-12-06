@@ -31,9 +31,9 @@ uint64_t seconds_in_month(int year, int month) {
 void main(int argc, char* argv[]) {
     // Read time
 
-    int fd = _open(-1, "dev/rtc");
+    int fd = _open(-1, "dev/rtc0");
     if (fd < 0) {
-        dprintf(CONSOLEOUT, "Error: Unable to open RTC device.\n", 34);
+        dprintf(CONSOLEOUT, "Error: Unable to open RTC device.\n");
         return;
     }
 
@@ -42,7 +42,7 @@ void main(int argc, char* argv[]) {
 
     long bytes_read = _read(fd, &time_ns, sizeof(uint64_t));
     if (bytes_read != sizeof(uint64_t)) {
-        dprintf(CONSOLEOUT, "Error: Unable to read time from RTC device.\n", 44);
+        dprintf(CONSOLEOUT, "Error: Unable to read time from RTC device.\n");
         _close(fd);
         return;
     }
@@ -87,9 +87,11 @@ void main(int argc, char* argv[]) {
         day, month_names[month], year, hour, minute, second
     );
     if (len <= 0) {
-        dprintf(CONSOLEOUT, "Error: Unable to format string.\n", 32);
+        dprintf(CONSOLEOUT, "Error: Unable to format string.\n");
         return;
     }
 
-    dprintf(STDOUT, buffer, (size_t)len);
+    _write(STDOUT, buffer, (size_t)len);
+
+    return;
 }

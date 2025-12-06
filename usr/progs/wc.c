@@ -15,7 +15,7 @@ void main(int argc, char* argv[]) {
         char* filename = argv[1];
         fd = _open(-1, filename);
         if (fd < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to open file.\n", 28);
+            dprintf(CONSOLEOUT, "Error: Unable to open file.\n");
             return;
         }
     }
@@ -30,7 +30,7 @@ void main(int argc, char* argv[]) {
     while (1) {
         bytes_read = _read(fd, &buffer, 1);
         if (bytes_read < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to read file.\n", 28);
+            dprintf(CONSOLEOUT, "Error: Unable to read file.\n");
             _close(fd);
             return;
         }
@@ -63,8 +63,7 @@ void main(int argc, char* argv[]) {
 
     // Output results
     // Note: max file size is 16844800 bytes, so max string length is 8 + 1 + 8 + 1 + 8 + 1 = 27
-    char output_buffer[64];
-    int output_length = snprintf(output_buffer, sizeof(output_buffer), "%lu\t%lu\t%lu\n", line_count, word_count, byte_count);
-    
-    dprintf(STDOUT, output_buffer, output_length);
+    dprintf(STDOUT, "%lu\t%lu\t%lu\n", line_count, word_count, byte_count);
+
+    return;
 }

@@ -7,7 +7,7 @@
 
 void main(int argc, char* argv[]) {
     if (argc < 2) {
-        dprintf(CONSOLEOUT, "Usage: ls <directory>\n", 22);
+        dprintf(CONSOLEOUT, "Usage: ls <directory>\n");
         return;
     }
 
@@ -29,14 +29,14 @@ void main(int argc, char* argv[]) {
 
     // "" = list mountpoints
     if (strcmp(dir_name, "") == 0) {
-        dprintf(STDOUT, "c\n", 2);
-        dprintf(STDOUT, "dev\n", 4);
+        dprintf(STDOUT, "c\n");
+        dprintf(STDOUT, "dev\n");
         return;
     }
 
     int fd = _open(-1, dir_name);
     if (fd < 0) {
-        dprintf(CONSOLEOUT, "Error: Unable to open directory.\n", 33);
+        dprintf(CONSOLEOUT, "Error: Unable to open directory.\n");
         return;
     }
 
@@ -45,7 +45,7 @@ void main(int argc, char* argv[]) {
     while (1) {
         bytes_read = _read(fd, buffer, sizeof(buffer));
         if (bytes_read < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to read directory.\n", 33);
+            dprintf(CONSOLEOUT, "Error: Unable to read directory.\n");
             _close(fd);
             return;
         }
@@ -53,9 +53,10 @@ void main(int argc, char* argv[]) {
             // End of listing
             break;
         }
-        dprintf(STDOUT, buffer, bytes_read);
-        dprintf(STDOUT, "\n", 1);
+        dprintf(STDOUT, "%s\n", buffer);
     }
 
     _close(fd);
+
+    return;
 }

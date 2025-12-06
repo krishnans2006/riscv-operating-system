@@ -6,14 +6,14 @@
 
 void main(int argc, char* argv[]) {
     if (argc < 2) {
-        dprintf(CONSOLEOUT, "Usage: cat <filename>\n", 22);
+        dprintf(CONSOLEOUT, "Usage: cat <filename>\n");
         return;
     }
 
     char* filename = argv[1];
     int fd = _open(-1, filename);
     if (fd < 0) {
-        dprintf(CONSOLEOUT, "Error: Unable to open file.\n", 28);
+        dprintf(CONSOLEOUT, "Error: Unable to open file.\n");
         return;
     }
 
@@ -22,14 +22,16 @@ void main(int argc, char* argv[]) {
     do {
         bytes_read = _read(fd, buffer, sizeof(buffer));
         if (bytes_read < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to read file.\n", 28);
+            dprintf(CONSOLEOUT, "Error: Unable to read file.\n");
             _close(fd);
             return;
         }
-        dprintf(STDOUT, buffer, bytes_read);
+        _write(STDOUT, buffer, bytes_read);
     } while (bytes_read > 0);
 
     // End of file reached
 
     _close(fd);
+
+    return;
 }

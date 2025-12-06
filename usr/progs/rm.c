@@ -6,7 +6,7 @@
 
 void main(int argc, char* argv[]) {
     if (argc < 2) {
-        dprintf(CONSOLEOUT, "Usage: rm <filename1> <filename2> ...\n", 38);
+        dprintf(CONSOLEOUT, "Usage: rm <filename1> <filename2> ...\n");
         return;
     }
 
@@ -14,7 +14,9 @@ void main(int argc, char* argv[]) {
         char* filename = argv[i];
         int result = _fsdelete(filename);
         if (result < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to delete file.\n", 30);
+            dprintf(CONSOLEOUT, "Error: Unable to delete file.\n");
         }
     }
+
+    return;
 }
