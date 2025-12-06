@@ -33,7 +33,7 @@ void main(int argc, char* argv[]) {
 
     int fd = _open(-1, "dev/rtc0");
     if (fd < 0) {
-        dprintf(CONSOLEOUT, "Error: Unable to open RTC device.\n");
+        dprintf(CONSOLEOUT, "Failed to open RTC device (Error Code: %d)\n", fd);
         return;
     }
 
@@ -42,7 +42,7 @@ void main(int argc, char* argv[]) {
 
     long bytes_read = _read(fd, &time_ns, sizeof(uint64_t));
     if (bytes_read != sizeof(uint64_t)) {
-        dprintf(CONSOLEOUT, "Error: Unable to read time from RTC device.\n");
+        dprintf(CONSOLEOUT, "Failed to read time from RTC device (Error Code: %d)\n", bytes_read);
         _close(fd);
         return;
     }
