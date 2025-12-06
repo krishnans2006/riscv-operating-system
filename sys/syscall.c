@@ -212,7 +212,7 @@ int sysexec(int fd, int argc, char **argv) {
         void *start = (void *)((uintptr_t)argv & ~(PAGE_SIZE - 1));
         uintptr_t end = (uintptr_t)argv + (size_t)argc * sizeof(char *) - 1;
         size_t aligned_len = end - (uintptr_t)start + 1;
-        result = validate_vptr(argv, aligned_len, PTE_R | PTE_U);
+        result = validate_vptr(start, aligned_len, PTE_R | PTE_U);
 
         if(result != 0 ) return result;
     }
@@ -560,40 +560,40 @@ int sysfcntl(int fd, int cmd, void *arg) {
     }
 
     switch (cmd) {
-    case FCNTL_GETEND:   // arg is unsigned long long *
-    case FCNTL_GETPOS: { 
-        void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
-        uintptr_t end = (uintptr_t)arg + sizeof(unsigned long long) - 1;
-        size_t aligned_len = end - (uintptr_t)start + 1;
+        case FCNTL_GETEND:   // arg is unsigned long long *
+        case FCNTL_GETPOS: { 
+            void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
+            uintptr_t end = (uintptr_t)arg + sizeof(unsigned long long) - 1;
+            size_t aligned_len = end - (uintptr_t)start + 1;
 
-        int rc = validate_vptr(start, aligned_len, PTE_W | PTE_U);
-        if (rc != 0) return rc;
-        break;
-    }
+            int rc = validate_vptr(start, aligned_len, PTE_W | PTE_U);
+            if (rc != 0) return rc;
+            break;
+        }
 
-    case FCNTL_SETEND:   // arg is unsigned long long *
-    case FCNTL_SETPOS: { 
-        void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
-        uintptr_t end = (uintptr_t)arg + sizeof(unsigned long long) - 1;
-        size_t aligned_len = end - (uintptr_t)start + 1;
+        case FCNTL_SETEND:   // arg is unsigned long long *
+        case FCNTL_SETPOS: { 
+            void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
+            uintptr_t end = (uintptr_t)arg + sizeof(unsigned long long) - 1;
+            size_t aligned_len = end - (uintptr_t)start + 1;
 
-        int rc = validate_vptr(start, aligned_len, PTE_R | PTE_U);
-        if (rc != 0) return rc;
-        break;
-    }
+            int rc = validate_vptr(start, aligned_len, PTE_R | PTE_U);
+            if (rc != 0) return rc;
+            break;
+        }
 
-    case FCNTL_MMAP: {   // arg is void ** (kernel writes mapping pointer)
-        void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
-        uintptr_t end = (uintptr_t)arg + sizeof(void *) - 1;
-        size_t aligned_len = end - (uintptr_t)start + 1;
+        case FCNTL_MMAP: {   // arg is void ** (kernel writes mapping pointer)
+            void *start = (void *)((uintptr_t)arg & ~(PAGE_SIZE - 1));
+            uintptr_t end = (uintptr_t)arg + sizeof(void *) - 1;
+            size_t aligned_len = end - (uintptr_t)start + 1;
 
-        int rc = validate_vptr(start, aligned_len, PTE_W | PTE_U);
-        if (rc != 0) return rc;
-        break;
-    }
+            int rc = validate_vptr(start, aligned_len, PTE_W | PTE_U);
+            if (rc != 0) return rc;
+            break;
+        }
 
-    default:
-        return -EINVAL;  // unknown command
+        default:
+            return -EINVAL;  // unknown command
     }
 
     return uio_cntl(proc->uiotab[fd], cmd, arg);
