@@ -1231,6 +1231,11 @@ long ktfs_fetch(struct uio* uio, void* buf, unsigned long len) {
         len = file->size - file->pos;
     }
 
+    // Edge case: File size is 0 or we are at the end of the file
+    if (len == 0) {
+        return 0;
+    }
+
     unsigned long start_byte = file->pos;
     unsigned long end_byte = file->pos + len - 1;
 
