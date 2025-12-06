@@ -22,7 +22,7 @@
 #include "uioimpl.h"
 #include "process.h"
 
-#define INITEXE "trek"  // FIXME
+#define INITEXE "shell"  // FIXME
 
 #define CMNTNAME "c"
 #define DEVMNTNAME "dev"
