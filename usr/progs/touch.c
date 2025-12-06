@@ -14,7 +14,7 @@ void main(int argc, char* argv[]) {
         char* filename = argv[i];
         int result = _fscreate(filename);
         if (result < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to create a file.\n");
+            dprintf(CONSOLEOUT, "Failed to create a file (Error Code: %d)\n", result);
         }
     }
 
