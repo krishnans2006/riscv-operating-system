@@ -163,8 +163,9 @@ int main()
 
 			// (c-ii) create outputing pipe, which happens when it's not the last program in the pipeline
 			if (pn < num - 1) {
-				if (_pipe(&wfd, &rfd_next) < 0) {
-					dprintf(CONSOLEOUT, "Failed to create pipe\r");
+				int result = _pipe(&wfd, &rfd_next);
+				if (result < 0) {
+					dprintf(CONSOLEOUT, "Failed to create pipe (Error Code: %d)\r", result);
 					break;
 				}
 			}

@@ -626,11 +626,6 @@ int syspipe(int *wfdptr, int *rfdptr) {
     result = validate_vptr(start, aligned_len, PTE_W | PTE_U);
     if (result != 0) return result;
 
-    // validate inputs
-    result = validate_vptr(wfdptr, sizeof(int), PTE_U | PTE_W);
-    if (result != 0) return result;
-    result = validate_vptr(rfdptr, sizeof(int), PTE_U | PTE_W);
-    if (result != 0) return result;
     
     struct process *proc = current_process();
     int i;
