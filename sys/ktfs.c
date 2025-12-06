@@ -634,7 +634,7 @@ static int ktfs_claim_inode(struct ktfs_fs* ktfs, uint16_t* inode_num_ptr) {
     // Read inode bitmap
     // Note: each block tracks KTFS_BLKSZ * 8 inodes (1 bit per inode)
 
-    unsigned long num_inodes = ktfs->K * (KTFS_BLKSZ / KTFS_INOSZ);
+    unsigned long num_inodes = ktfs->N * (KTFS_BLKSZ / KTFS_INOSZ);
     unsigned long num_inodes_processed = 0;
 
     for (int i = 1; i < 1 + inode_bitmap_block_count; i++) {
