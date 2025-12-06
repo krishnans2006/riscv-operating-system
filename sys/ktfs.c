@@ -1191,7 +1191,7 @@ int mount_ktfs(const char* name, struct cache* cache) {
 int ktfs_open(struct filesystem* fs, const char* name, struct uio** uioptr) {
     struct ktfs_fs* ktfs = (struct ktfs_fs*)fs;
 
-    if (name == NULL || uioptr == NULL) {
+    if (uioptr == NULL) {
         return -EINVAL;
     }
 
