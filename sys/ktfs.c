@@ -1475,6 +1475,7 @@ int ktfs_delete(struct filesystem* fs, const char* name) {
             cache_release_block(ktfs->cache, (void*)inode_block, 0);
             return result;
         }
+        cache_release_block(ktfs->cache, (void*)dir_block, 0);
         // Write last dentry into dentry_index position
         result = ktfs_write_data(ktfs, root_inode, dentry_index * KTFS_DENSZ, (dentry_index + 1) * KTFS_DENSZ - 1, last_dentry);
         if (result != 0) {
@@ -1482,7 +1483,7 @@ int ktfs_delete(struct filesystem* fs, const char* name) {
             cache_release_block(ktfs->cache, (void*)inode_block, 0);
             return result;
         }
-        cache_release_block(ktfs->cache, (void*)dir_block, 0);
+        
         // Shrink the file
         result = ktfs_shrink_file(ktfs, root_inode, root_inode->size - KTFS_DENSZ);
         if (result != 0) {
