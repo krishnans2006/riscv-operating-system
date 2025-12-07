@@ -104,7 +104,6 @@ int main()
 	char* input_file;
 	char* output_file;
 	int wfd, rfd, rfd_next;
-	int pids[MAXARGS];
 	int result; // for storing error codes
 
 
@@ -153,7 +152,7 @@ int main()
 			int fd = _open(-1, path);
 			if (fd < 0) {
 				// failed to open program file
-				dprintf(CONSOLEOUT, "Failed to find %s (Error Code: %d)\r", path, fd);
+				dprintf(CONSOLEOUT, "Failed to find %s (Error Code: %d)\n", path, fd);
 				break;
 			}
 
@@ -166,14 +165,13 @@ int main()
 			if (pn < num - 1) {
 				result = _pipe(&wfd, &rfd_next);
 				if (result < 0) {
-					dprintf(CONSOLEOUT, "Failed to create pipe (Error Code: %d)\r", result);
+					dprintf(CONSOLEOUT, "Failed to create pipe (Error Code: %d)\n", result);
 					break;
 				}
 			}
 
 			// (d) fork and exec
 			int pid = _fork();
-			pids[pn] = pid;
 			if (pid == 0) {
 				// CHILD process
 				// (i) input redirection
@@ -181,7 +179,7 @@ int main()
 					_close(STDIN);
 					result = _open(STDIN, input_file);
 					if (result < 0) {
-						dprintf(CONSOLEOUT, "Failed to open %s (Error Code: %d)\r", input_file, result);
+						dprintf(CONSOLEOUT, "Failed to open %s (Error Code: %d)\n", input_file, result);
 						_exit();
 					}
 				}
@@ -191,7 +189,7 @@ int main()
 					_close(STDOUT);
 					result = _open(STDOUT, output_file);
 					if (result < 0) {
-						dprintf(CONSOLEOUT, "Failed to open %s (Error Code: %d)\r", output_file, result);
+						dprintf(CONSOLEOUT, "Failed to open %s (Error Code: %d)\n", output_file, result);
 						_exit();
 					}
 				}
@@ -214,7 +212,7 @@ int main()
 				// (vi) finally exec
 				result = _exec(fd, argc[pn], argv[pn]);
 				// unsuccessful exec
-				dprintf(CONSOLEOUT, "Failed to exec file (Error Code: %d)\r", result, fd, argc[pn]);
+				dprintf(CONSOLEOUT, "Failed to exec %s (Error Code: %d)\n", path, result);
 				_exit();
 			}
 
@@ -227,7 +225,7 @@ int main()
 				_close(rfd);
 			}
 			// wait for children process
-			_wait(pids[pn]);
+			_wait(pid);
 		}
 	}
 }
