@@ -754,6 +754,8 @@ static int ktfs_claim_data_block(struct ktfs_fs* ktfs, uint32_t* block_num_ptr) 
                 }
             }
         }
+
+        cache_release_block(ktfs->cache, (void*)bitmap_block, 0);   
     }
 
     // No free data block found
