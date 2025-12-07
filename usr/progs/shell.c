@@ -136,7 +136,7 @@ int main()
 		if (no_args == 1) {
 			continue;
 		} else if (no_args == 2) {
-			dprintf(CONSOLEOUT, "Command has > %d arguments\n", MAXARGS);
+			dprintf(CONSOLEOUT, "Error: Program has > %d arguments\n", MAXARGS);
 			continue;
 		}
 
