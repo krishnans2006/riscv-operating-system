@@ -14,7 +14,7 @@ void main(int argc, char* argv[]) {
         char* filename = argv[i];
         int result = _fsdelete(filename);
         if (result < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to delete file.\n");
+            dprintf(CONSOLEOUT, "Failed to delete %s (Error Code: %d)\n", filename, result);
         }
     }
 

@@ -15,7 +15,7 @@ void main(int argc, char* argv[]) {
         char* filename = argv[1];
         fd = _open(-1, filename);
         if (fd < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to open file.\n");
+            dprintf(CONSOLEOUT, "Failed to open %s (Error Code: %d)\n", filename, fd);
             return;
         }
     }
@@ -30,7 +30,7 @@ void main(int argc, char* argv[]) {
     while (1) {
         bytes_read = _read(fd, &buffer, 1);
         if (bytes_read < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to read file.\n");
+            dprintf(CONSOLEOUT, "Failed to read file (Error Code: %d)\n", bytes_read);
             _close(fd);
             return;
         }

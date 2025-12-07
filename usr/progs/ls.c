@@ -38,7 +38,7 @@ void main(int argc, char* argv[]) {
 
     int fd = _open(-1, dir_name);
     if (fd < 0) {
-        dprintf(CONSOLEOUT, "Error: Unable to open directory.\n");
+        dprintf(CONSOLEOUT, "Failed to open directory (Error Code: %d)\n", fd);
         return;
     }
 
@@ -47,7 +47,7 @@ void main(int argc, char* argv[]) {
     while (1) {
         bytes_read = _read(fd, buffer, sizeof(buffer));
         if (bytes_read < 0) {
-            dprintf(CONSOLEOUT, "Error: Unable to read directory.\n");
+            dprintf(CONSOLEOUT, "Failed to read directory (Error Code: %d)\n", bytes_read);
             _close(fd);
             return;
         }
