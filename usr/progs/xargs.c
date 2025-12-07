@@ -90,8 +90,12 @@ void main(int argc, char *argv[]) {
 
 	argc_new += argc_in;
 
-	// skip if no args
+	// skip if no args or too many args
 	if (argc_new == 0) return;
+	if (argc_new > MAXARGS) {
+		dprintf(CONSOLEOUT, "Error: Program has > %d arguments\n", MAXARGS);
+		return;
+	}
 
 	// (3) get the path of the program
 	char path[BUFSIZE];

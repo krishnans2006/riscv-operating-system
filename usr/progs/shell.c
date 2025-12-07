@@ -127,12 +127,18 @@ int main()
 		// (1) Call parse and terminate each argv with NULL
 		int num = parse(buf, argv, argc, &input_file, &output_file);
 
-		// skip if one of the programs has no args
+		// skip if one of the programs has no args or has > 8 args
 		int no_args = 0;
 		for (int pn = 0; pn < num; pn++) {
 			if (argc[pn] == 0) { no_args = 1; break; }
+			if (argc[pn] > MAXARGS) { no_args = 2; break; }
 		}
-		if (no_args) { continue; }
+		if (no_args == 1) {
+			continue;
+		} else if (no_args == 2) {
+			dprintf(CONSOLEOUT, "Command has > %d arguments\n", MAXARGS);
+			continue;
+		}
 
 
 		// (2) loop over each piped program
