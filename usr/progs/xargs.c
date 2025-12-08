@@ -12,6 +12,7 @@ char* find_terminator(char* buf) {
 			case ' ':
 			case '\n':
 			case '\r':
+			case '\t':
 			case '\0':
 				return p;
 			default:
@@ -30,7 +31,7 @@ int parse(char* buf, char* argv[MAXARGS + 1]) {
 	
 	while(*head) { // find each argv
 		// skip spaces and newlines
-		while(*head == ' ' || *head == '\n' || *head == '\r') head++;
+		while(*head == ' ' || *head == '\n' || *head == '\r' || *head == '\t') head++;
 		if (*head == '\0') break;
 
 		switch(*head) {
@@ -110,14 +111,14 @@ void main(int argc, char *argv[]) {
 	int fd = _open(-1, path);
 	if (fd < 0) {
 		// failed to open program file
-		dprintf(CONSOLEOUT, "Failed to find %s (Error Code: %d)\r", path, fd);
+		dprintf(CONSOLEOUT, "Failed to find %s (Error Code: %d)\n", path, fd);
 		return;
 	}
 
 	// (5) just exec, don't need to fork
 	int result = _exec(fd, argc_new, argv_new);
 	// unsuccessful exec
-	dprintf(CONSOLEOUT, "Failed to exec %s (Error Code: %d)\r", path, result);
+	dprintf(CONSOLEOUT, "Failed to exec %s (Error Code: %d)\n", path, result);
 	_exit();
 	
 

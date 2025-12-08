@@ -11,6 +11,7 @@ char* find_terminator(char* buf) {
 	while(*p) {
 		switch(*p) {
 			case ' ':
+			case '\t':
 			case '\0':
 			case FIN:
 			case FOUT:
@@ -39,7 +40,7 @@ int parse(char* buf, char* argv[][MAXARGS + 1], int* argc, char** input_file, ch
 	
 	while(*head) { // find each argv
 		// skip spaces
-		while(*head == ' ') head++;
+		while(*head == ' ' || *head == '\t') head++;
 		if (*head == '\0') break;
 
 		switch(*head) {
@@ -49,10 +50,10 @@ int parse(char* buf, char* argv[][MAXARGS + 1], int* argc, char** input_file, ch
 
 			// > output to file
 			case FOUT:
-				head++; 						// step over >
-				while(*head == ' ') head++; 	// step over spaces to reach the start of the output file
-				*output_file = head;				// set the output file
-				head = find_terminator(head);	// get to the end of the output file name
+				head++; 										// step over >
+				while(*head == ' ' || *head == '\t') head++; 	// step over spaces to reach the start of the output file
+				*output_file = head;							// set the output file
+				head = find_terminator(head);					// get to the end of the output file name
 				if (*head) {
 					*head = '\0';
 					head++;
@@ -61,10 +62,10 @@ int parse(char* buf, char* argv[][MAXARGS + 1], int* argc, char** input_file, ch
 
 			// < input to file
 			case FIN:
-				head++;							// step over <
-				while(*head == ' ') head++; 	// step over spaces to reach  the start of the input file
-				*input_file = head;				// set the input file
-				head = find_terminator(head);	// get to the end of the input file name
+				head++;											// step over <
+				while(*head == ' ' || *head == '\t') head++; 	// step over spaces to reach  the start of the input file
+				*input_file = head;								// set the input file
+				head = find_terminator(head);					// get to the end of the input file name
 				if (*head) {
 					*head = '\0';
 					head++;
