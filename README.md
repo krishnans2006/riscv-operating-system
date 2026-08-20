@@ -1,6 +1,3 @@
-# Team NTFS
+# RISC-V Operating System
 
-## Members
-- jerryw4
-- ks128 (krishnans2006)
-- sz92 (SZhOU-c)
+A RISC-V operating system supporting virtual memory, an EXT2-like filesystem, syscalls, forks, pipes, and a bash-like shell, all from scratch in C.
